@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from classctl.core.config import ConfigManager
+from classctl.core.config_validator import validate as validate_classroom
 from classctl.core.discovery import DiscoveryEngine
 from classctl.core.pipeline_runner import PipelineRunner
 from classctl.core.run_state_machine import RunStateMachine
@@ -32,12 +33,15 @@ class ShutdownRequest(BaseModel):
     machine_ips: list[str] | None = None  # None = all machines
 
 
-async def _run_pipeline(runner: PipelineRunner) -> None:
+async def _run_pipeline(runner: PipelineRunner, on_finish=None) -> None:
     """Wraps runner.run() so configuration errors surface as events."""
     try:
         await runner.run()
     except Exception as exc:
         runner.events.put_nowait({"type": "run_error", "error": str(exc)})
+    finally:
+        if on_finish:
+            on_finish()
 
 
 def _serialize_state(state) -> dict:
@@ -70,6 +74,8 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     # Active runs keyed by run_id; lives in app.state so each test gets isolation
     app.state.runs: dict[str, dict] = {}
+    # At most one run active at a time across all classrooms
+    app.state.active_run_id: str | None = None
 
     @app.get("/")
     def index():
@@ -167,6 +173,17 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
         if not machines:
             raise HTTPException(status_code=400, detail="No machines selected")
 
+        if app.state.active_run_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Запуск уже активен ({app.state.active_run_id[:8]}…). "
+                       "Дождитесь завершения или прервите его.",
+            )
+
+        errors = validate_classroom(room, request.start_step, request.end_step)
+        if errors:
+            raise HTTPException(status_code=400, detail=errors[0])
+
         target_ips = [m["ip"] for m in machines]
         rsm = RunStateMachine(
             start_step=request.start_step,
@@ -182,7 +199,13 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
         )
 
         run_id = str(uuid.uuid4())
-        task = asyncio.create_task(_run_pipeline(runner))
+        app.state.active_run_id = run_id
+
+        def _clear_active():
+            if app.state.active_run_id == run_id:
+                app.state.active_run_id = None
+
+        task = asyncio.create_task(_run_pipeline(runner, on_finish=_clear_active))
         app.state.runs[run_id] = {"runner": runner, "task": task}
         return {"run_id": run_id}
 
@@ -237,6 +260,18 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
         if request.machine_ips is not None:
             machines = [m for m in machines if m["ip"] in request.machine_ips]
 
+        # Exclude machines that are part of an active Run
+        skipped = []
+        if app.state.active_run_id:
+            active_entry = app.state.runs.get(app.state.active_run_id)
+            if active_entry:
+                active_ips = set(active_entry["runner"].state.machines.keys())
+                skipped = [
+                    {"ip": m["ip"], "reason": "run_active"}
+                    for m in machines if m["ip"] in active_ips
+                ]
+                machines = [m for m in machines if m["ip"] not in active_ips]
+
         key_path = room["ssh_key_path"]
         username = room.get("username", "student")
 
@@ -247,7 +282,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
                 return {"ip": ip, "ok": False, "error": str(exc)}
 
         results = await asyncio.gather(*[_safe(m["ip"]) for m in machines])
-        return list(results)
+        return {"results": list(results), "skipped": skipped}
 
     # --- Settings routes ---
 

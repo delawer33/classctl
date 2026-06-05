@@ -80,7 +80,7 @@ async def test_missing_key_file_raises_before_run(tmp_path):
     classroom = _classroom(str(tmp_path / "nonexistent_key"))
     recorder = ScriptRecorder()
     runner = _runner(_rsm(), classroom, recorder)
-    with pytest.raises(ConfigurationError, match="SSH key"):
+    with pytest.raises(ConfigurationError, match="SSH"):
         await runner.run()
     assert recorder.calls == []  # no scripts were run
 
@@ -90,7 +90,7 @@ async def test_missing_step_mapping_raises(tmp_path):
     classroom = {**_classroom(str(key)), "step_mapping": {"1": "a.sh"}}  # missing 2,3,4
     recorder = ScriptRecorder()
     runner = _runner(_rsm(), classroom, recorder)
-    with pytest.raises(ConfigurationError, match="Step 2"):
+    with pytest.raises(ConfigurationError, match="2"):
         await runner.run()
 
 

@@ -30,30 +30,24 @@ def test_shutdown_unknown_classroom_404(tmp_path):
 
 
 def test_shutdown_returns_attempted_ips(tmp_path):
-    called = []
-
     async def stub_shutdown(ip, key_path, username):
-        called.append(ip)
         return {"ip": ip, "ok": True}
 
     c = _client(tmp_path, fake_shutdown=stub_shutdown)
     r = c.post("/classrooms/Lab 1/shutdown", json={"machine_ips": ["10.0.0.1"]})
     assert r.status_code == 200
-    results = r.json()
+    results = r.json()["results"]
     assert any(item["ip"] == "10.0.0.1" for item in results)
 
 
 def test_shutdown_all_machines_when_no_ips_specified(tmp_path):
-    called = []
-
     async def stub_shutdown(ip, key_path, username):
-        called.append(ip)
         return {"ip": ip, "ok": True}
 
     c = _client(tmp_path, fake_shutdown=stub_shutdown)
     r = c.post("/classrooms/Lab 1/shutdown", json={})
     assert r.status_code == 200
-    results = r.json()
+    results = r.json()["results"]
     ips = {item["ip"] for item in results}
     assert ips == {"10.0.0.1", "10.0.0.2"}
 
@@ -65,8 +59,7 @@ def test_shutdown_ssh_failure_reported_not_raised(tmp_path):
     c = _client(tmp_path, fake_shutdown=failing_shutdown)
     r = c.post("/classrooms/Lab 1/shutdown", json={})
     assert r.status_code == 200
-    results = r.json()
-    # All machines should appear in results, with ok=False and an error message
+    results = r.json()["results"]
     for item in results:
         assert item["ok"] is False
         assert "error" in item

@@ -1,7 +1,7 @@
 import asyncio
-import os
 from typing import Callable, Coroutine, Any
 
+from classctl.core.config_validator import validate as validate_classroom
 from classctl.core.error_detector import detect
 from classctl.core.run_state_machine import RunStateMachine, RunPhase, MachineStatus
 from classctl.core.script_executor import ScriptExecutor, ExecutionResult, ExecutionStatus
@@ -138,16 +138,13 @@ class PipelineRunner:
     # --- Private ---
 
     def _validate(self) -> None:
-        key_path = self._classroom["ssh_key_path"]
-        if not os.path.isfile(key_path):
-            raise ConfigurationError(f"SSH key not found: {key_path}")
-
-        step_mapping = self._classroom.get("step_mapping", {})
-        for step in range(self._rsm.state.start_step, self._rsm.state.end_step + 1):
-            if str(step) not in step_mapping:
-                raise ConfigurationError(
-                    f"Step {step} has no script configured in step_mapping"
-                )
+        errors = validate_classroom(
+            self._classroom,
+            self._rsm.state.start_step,
+            self._rsm.state.end_step,
+        )
+        if errors:
+            raise ConfigurationError(errors[0])
 
     async def _wol_phase(self) -> None:
         if not self._wol_sender:
