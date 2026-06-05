@@ -1,0 +1,32 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache openssh sudo
+
+# Generate host keys and create the test user with empty authorized_keys.
+# The public key is injected after the container starts via docker exec,
+# which avoids quoting issues with build-arg for keys containing spaces.
+RUN ssh-keygen -A && \
+    adduser -D testuser && \
+    # Unlock the account: adduser -D sets '!' in shadow which OpenSSH's
+    # allowed_user() treats as a locked account, blocking pubkey auth too.
+    # '*' means no password but account is accessible.
+    sed -i 's/^testuser:!/testuser:*/' /etc/shadow && \
+    mkdir -p /home/testuser/.ssh /home/testuser/scripts && \
+    chmod 700 /home/testuser/.ssh && \
+    touch /home/testuser/.ssh/authorized_keys && \
+    chmod 600 /home/testuser/.ssh/authorized_keys && \
+    chown -R testuser:testuser /home/testuser && \
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+COPY fake_script.sh /home/testuser/scripts/fake_script.sh
+RUN chmod +x /home/testuser/scripts/fake_script.sh
+
+# Disable password auth; public key only
+RUN sed -i \
+      -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' \
+      -e 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' \
+      -e 's/^#\?PermitRootLogin.*/PermitRootLogin no/' \
+      /etc/ssh/sshd_config
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>classctl</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      background: #f4f4f4;
+      color: #1a1a1a;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      padding: 12px 20px;
+      font-weight: 600;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Sidebar — classroom list */
+    .sidebar {
+      width: 220px;
+      background: #fff;
+      border-right: 1px solid #ddd;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 12px 14px 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #888;
+      font-weight: 600;
+    }
+
+    #classroom-list {
+      list-style: none;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    #classroom-list li {
+      padding: 9px 14px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+
+    #classroom-list li:hover { background: #f5f5f5; }
+    #classroom-list li.active {
+      background: #f0f4ff;
+      border-left-color: #4a6cf7;
+      font-weight: 500;
+    }
+
+    .sidebar-add {
+      padding: 10px 14px;
+      border-top: 1px solid #eee;
+    }
+
+    /* Main panel */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+    }
+
+    .empty-state {
+      color: #999;
+      margin-top: 60px;
+      text-align: center;
+    }
+
+    /* Form */
+    .form-section { margin-bottom: 28px; }
+
+    .form-section h2 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #888;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+
+    .field { margin-bottom: 12px; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      max-width: 420px;
+      padding: 7px 10px;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #fff;
+      color: #1a1a1a;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #4a6cf7;
+    }
+
+    .step-grid {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 6px 12px;
+      align-items: center;
+      max-width: 420px;
+    }
+
+    .step-label {
+      font-size: 12px;
+      color: #555;
+      font-weight: 500;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 7px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      font-family: inherit;
+    }
+
+    .btn-primary { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+    .btn-primary:hover { background: #3a5ce5; }
+    .btn-secondary { background: #fff; color: #333; border-color: #d0d0d0; }
+    .btn-secondary:hover { background: #f5f5f5; }
+    .btn-danger { background: #fff; color: #c0392b; border-color: #e0a0a0; }
+    .btn-danger:hover { background: #fdf0f0; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+
+    /* Messages */
+    .msg { font-size: 12px; margin-top: 8px; }
+    .msg-ok { color: #27ae60; }
+    .msg-err { color: #c0392b; }
+
+    /* ── Run Monitor ───────────────────────────────────────── */
+
+    .run-panel { margin-top: 32px; }
+
+    /* Step tracker */
+    .step-track {
+      display: flex;
+      gap: 0;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .step-bubble {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600;
+      background: #eee; color: #888;
+      border: 2px solid #ddd;
+      flex-shrink: 0;
+      transition: background 0.2s, color 0.2s;
+    }
+    .step-bubble.active  { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+    .step-bubble.done    { background: #27ae60; color: #fff; border-color: #27ae60; }
+    .step-connector {
+      flex: 1; height: 2px; background: #ddd; min-width: 12px; max-width: 40px;
+    }
+
+    /* Status badges */
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: monospace;
+      letter-spacing: 0.03em;
+    }
+    .badge-PENDING     { background: #f0f0f0; color: #888; }
+    .badge-RUNNING     { background: #e8eeff; color: #4a6cf7; }
+    .badge-CLEAN       { background: #e6f9ee; color: #27ae60; }
+    .badge-FLAGGED     { background: #fff4e5; color: #e67e22; }
+    .badge-TIMED_OUT   { background: #fdecea; color: #c0392b; }
+    .badge-DISCONNECTED{ background: #fdecea; color: #c0392b; }
+    .badge-SKIPPED     { background: #f5f5f5; color: #aaa; }
+
+    /* Machine run table */
+    .run-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .run-table th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888;
+      text-align: left;
+      padding: 6px 8px;
+      font-weight: 600;
+    }
+    .run-table td { padding: 7px 8px; border-top: 1px solid #f0f0f0; vertical-align: top; }
+    .run-table tr:first-child td { border-top: none; }
+
+    .output-toggle {
+      background: none; border: none; cursor: pointer;
+      color: #aaa; font-size: 13px; padding: 0 4px;
+    }
+    .output-toggle:hover { color: #555; }
+
+    .output-pre {
+      display: none;
+      font-family: monospace;
+      font-size: 11px;
+      background: #f8f8f8;
+      border: 1px solid #eee;
+      border-radius: 3px;
+      padding: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #333;
+      margin-top: 6px;
+    }
+
+    /* Pause overlay */
+    .pause-banner {
+      background: #fff8e1;
+      border: 1px solid #ffe082;
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .pause-banner span { font-weight: 500; font-size: 13px; flex: 1; min-width: 150px; }
+    .btn-warn { background: #fff; color: #e67e22; border-color: #f0c060; }
+    .btn-warn:hover { background: #fff8e1; }
+  </style>
+</head>
+<body>
+  <header style="display:flex;justify-content:space-between;align-items:center">
+    <span>classctl</span>
+    <button class="btn btn-secondary btn-sm" onclick="showSettings()">Settings</button>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">Classrooms</div>
+      <ul id="classroom-list"></ul>
+      <div class="sidebar-add">
+        <button class="btn btn-secondary btn-sm" onclick="showNewForm()">+ New</button>
+      </div>
+    </aside>
+    <main class="main" id="main">
+      <div class="empty-state" id="empty">Select a classroom or create a new one.</div>
+    </main>
+  </div>
+
+  <script>
+    // Step numbers and human-readable labels in fixed order
+    const STEPS = [
+      [1, "Stop VMs"],
+      [2, "Delete VMs"],
+      [3, "Reset host"],
+      [4, "Create VMs"],
+      [5, "Shutdown (optional)"],
+    ];
+
+    let classrooms = [];
+    let activeRoom = null;
+
+    async function api(method, path, body) {
+      const opts = { method, headers: { "Content-Type": "application/json" } };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+      const r = await fetch(path, opts);
+      if (r.status === 204) return null;
+      return r;
+    }
+
+    async function loadClassrooms() {
+      const r = await api("GET", "/classrooms");
+      classrooms = await r.json();
+      renderList();
+    }
+
+    function renderList() {
+      const ul = document.getElementById("classroom-list");
+      ul.innerHTML = classrooms.map(c =>
+        `<li class="${c.name === activeRoom ? 'active' : ''}"
+             onclick="selectRoom('${escHtml(c.name)}')">${escHtml(c.name)}</li>`
+      ).join("");
+    }
+
+    function selectRoom(name) {
+      activeRoom = name;
+      renderList();
+      const room = classrooms.find(c => c.name === name);
+      renderForm(room, false);
+    }
+
+    function showNewForm() {
+      activeRoom = null;
+      renderList();
+      renderForm(null, true);
+    }
+
+    function renderForm(room, isNew) {
+      const main = document.getElementById("main");
+      const sm = room?.step_mapping ?? {};
+
+      const stepFields = STEPS.map(([n, label]) =>
+        `<span class="step-label">${label}</span>
+         <input type="text" id="step-${n}" value="${escHtml(sm[n] ?? '')}" placeholder="filename.sh">`
+      ).join("");
+
+      main.innerHTML = `
+        <div class="form-section">
+          <h2>${isNew ? "New Classroom" : "Edit Classroom"}</h2>
+          <div class="field">
+            <label>Name</label>
+            <input type="text" id="f-name" value="${escHtml(room?.name ?? '')}" ${!isNew ? 'readonly style="background:#f8f8f8"' : ''}>
+          </div>
+          <div class="field">
+            <label>Subnet (CIDR)</label>
+            <input type="text" id="f-subnet" value="${escHtml(room?.subnet ?? '')}" placeholder="192.168.10.0/24">
+          </div>
+          <div class="field">
+            <label>SSH key path</label>
+            <input type="text" id="f-key" value="${escHtml(room?.ssh_key_path ?? '')}" placeholder="/home/user/.ssh/id_rsa">
+          </div>
+          <div class="field">
+            <label>SSH username</label>
+            <input type="text" id="f-username" value="${escHtml(room?.username ?? '')}" placeholder="student">
+          </div>
+          <div class="field">
+            <label>Script directory</label>
+            <input type="text" id="f-dir" value="${escHtml(room?.script_directory ?? '/home/student/VBox_install')}">
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h2>Step Mapping</h2>
+          <div class="step-grid">${stepFields}</div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveRoom(${isNew})">
+            ${isNew ? "Create" : "Save"}
+          </button>
+          ${!isNew ? `<button class="btn btn-danger" onclick="deleteRoom()">Delete</button>` : ""}
+        </div>
+        <div class="msg" id="form-msg"></div>
+
+        ${!isNew ? `
+        <hr style="border:none;border-top:1px solid #eee;margin:28px 0">
+        <div class="form-section">
+          <h2>Machines
+            <span style="font-weight:400;font-size:12px;margin-left:10px;text-transform:none;letter-spacing:0">
+              <button class="btn btn-secondary btn-sm" onclick="selectAllMachines(true)">Select all</button>
+              <button class="btn btn-secondary btn-sm" onclick="selectAllMachines(false)">Deselect all</button>
+              <button class="btn btn-secondary btn-sm" onclick="discoverMachines()" id="btn-discover">↻ Refresh</button>
+              <button class="btn btn-secondary btn-sm" onclick="showAddMachine()">+ Add</button>
+            </span>
+          </h2>
+          <div id="discover-msg" class="msg" style="margin-bottom:8px"></div>
+          <div id="machine-list-wrap"></div>
+          <div id="add-machine-form" style="display:none;margin-top:12px;display:none">
+            <div style="display:flex;gap:8px;max-width:420px;flex-wrap:wrap">
+              <input type="text" id="new-ip" placeholder="IP address" style="flex:1;min-width:130px">
+              <input type="text" id="new-mac" placeholder="MAC address" style="flex:1;min-width:150px">
+              <button class="btn btn-primary btn-sm" onclick="addMachine()">Add</button>
+              <button class="btn btn-secondary btn-sm" onclick="hideAddMachine()">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid #eee;margin:28px 0">
+        <div class="form-section">
+          <h2>Run Pipeline
+            <span style="font-weight:400;font-size:12px;margin-left:10px;text-transform:none;letter-spacing:0">
+              Start step:
+              <select id="run-start" style="font-size:12px;border:1px solid #d0d0d0;border-radius:3px;padding:2px 4px">
+                ${STEPS.slice(0,-1).map(([n,l]) => `<option value="${n}">${n} — ${l}</option>`).join("")}
+              </select>
+            </span>
+          </h2>
+          <label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;cursor:pointer;font-size:13px;font-weight:400;color:#333">
+            <input type="checkbox" id="run-wol" checked>
+            Wake on LAN
+            <span style="color:#aaa;font-size:11px">(uncheck if machines are already on)</span>
+          </label>
+          <br>
+          <button class="btn btn-primary" onclick="startRun()">▶ Start Run</button>
+          <div class="msg" id="run-start-msg"></div>
+        </div>
+
+        <div id="run-monitor"></div>
+        ` : ""}
+      `;
+
+      if (!isNew) loadMachines(room.name);
+    }
+
+    async function loadMachines(roomName) {
+      const r = await api("GET", `/classrooms/${encodeURIComponent(roomName)}/machines`);
+      const machines = await r.json();
+      renderMachineList(roomName, machines);
+    }
+
+    function renderMachineList(roomName, machines) {
+      const wrap = document.getElementById("machine-list-wrap");
+      if (!wrap) return;
+      if (machines.length === 0) {
+        wrap.innerHTML = `<p style="color:#999;font-size:12px">No machines. Add one or run Discovery.</p>`;
+        return;
+      }
+      wrap.innerHTML = `
+        <table style="width:100%;max-width:500px;border-collapse:collapse">
+          <thead>
+            <tr style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.05em">
+              <th style="width:32px;padding:6px 0"></th>
+              <th style="text-align:left;padding:6px 8px">IP</th>
+              <th style="text-align:left;padding:6px 8px">MAC</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${machines.map(m => `
+              <tr style="border-top:1px solid #f0f0f0">
+                <td style="padding:6px 0;text-align:center">
+                  <input type="checkbox" class="machine-cb" data-mac="${escHtml(m.mac)}" checked>
+                </td>
+                <td style="padding:6px 8px;font-family:monospace;font-size:13px">${escHtml(m.ip)}</td>
+                <td style="padding:6px 8px;font-family:monospace;font-size:12px;color:#666">${escHtml(m.mac)}</td>
+                <td style="padding:6px 0;text-align:center">
+                  <button class="btn btn-secondary btn-sm"
+                          onclick="removeMachine('${escHtml(roomName)}','${escHtml(m.mac)}')"
+                          title="Remove">✕</button>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function selectAllMachines(checked) {
+      document.querySelectorAll(".machine-cb").forEach(cb => cb.checked = checked);
+    }
+
+    function showAddMachine() {
+      const f = document.getElementById("add-machine-form");
+      f.style.display = "block";
+    }
+
+    function hideAddMachine() {
+      document.getElementById("add-machine-form").style.display = "none";
+    }
+
+    async function addMachine() {
+      const ip = document.getElementById("new-ip").value.trim();
+      const mac = document.getElementById("new-mac").value.trim();
+      if (!ip || !mac) return;
+      await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/machines`, { ip, mac });
+      hideAddMachine();
+      await loadMachines(activeRoom);
+    }
+
+    async function removeMachine(roomName, mac) {
+      await api("DELETE", `/classrooms/${encodeURIComponent(roomName)}/machines/${encodeURIComponent(mac)}`);
+      await loadMachines(roomName);
+    }
+
+    async function discoverMachines() {
+      const btn = document.getElementById("btn-discover");
+      const msg = document.getElementById("discover-msg");
+      if (btn) btn.disabled = true;
+      if (msg) { msg.className = "msg"; msg.textContent = "Scanning…"; }
+
+      const r = await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/discover`);
+
+      if (r && r.ok) {
+        const machines = await r.json();
+        await loadMachines(activeRoom);
+        if (msg) {
+          msg.className = "msg msg-ok";
+          msg.textContent = machines.length > 0
+            ? `Found ${machines.length} machine(s).`
+            : "No hosts found. Machine list unchanged.";
+        }
+      } else {
+        const err = r ? await r.json() : { detail: "Network error" };
+        if (msg) { msg.className = "msg msg-err"; msg.textContent = err.detail ?? "Scan failed."; }
+      }
+      if (btn) btn.disabled = false;
+    }
+
+    async function saveRoom(isNew) {
+      const payload = {
+        name: document.getElementById("f-name").value.trim(),
+        subnet: document.getElementById("f-subnet").value.trim(),
+        ssh_key_path: document.getElementById("f-key").value.trim(),
+        username: document.getElementById("f-username").value.trim(),
+        script_directory: document.getElementById("f-dir").value.trim(),
+        step_mapping: Object.fromEntries(
+          STEPS.map(([n]) => [n, document.getElementById(`step-${n}`).value.trim()])
+        ),
+        machines: [],
+      };
+
+      const method = isNew ? "POST" : "PUT";
+      const path = isNew ? "/classrooms" : `/classrooms/${encodeURIComponent(activeRoom)}`;
+      const r = await api(method, path, payload);
+
+      const msg = document.getElementById("form-msg");
+      if (r.ok) {
+        msg.className = "msg msg-ok";
+        msg.textContent = isNew ? "Classroom created." : "Saved.";
+        await loadClassrooms();
+        if (isNew) selectRoom(payload.name);
+      } else {
+        const err = await r.json();
+        msg.className = "msg msg-err";
+        msg.textContent = err.detail ?? "Error saving.";
+      }
+    }
+
+    async function deleteRoom() {
+      if (!confirm(`Delete "${activeRoom}"?`)) return;
+      await api("DELETE", `/classrooms/${encodeURIComponent(activeRoom)}`);
+      activeRoom = null;
+      await loadClassrooms();
+      document.getElementById("main").innerHTML =
+        `<div class="empty-state" id="empty">Select a classroom or create a new one.</div>`;
+    }
+
+    // Prevent XSS when interpolating user data into innerHTML
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function showSettings() {
+      activeRoom = null;
+      renderList();
+      const r = await api("GET", "/settings/error-patterns");
+      const patterns = await r.json();
+      const main = document.getElementById("main");
+      main.innerHTML = `
+        <div class="form-section">
+          <h2>Error Detection Patterns</h2>
+          <p style="font-size:12px;color:#666;margin-bottom:14px">
+            Lines in script output containing any of these strings (case-insensitive)
+            are flagged as errors.
+          </p>
+          <div id="pattern-list">
+            ${patterns.map((p, i) => patternRow(p, i)).join("")}
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:10px"
+                  onclick="addPatternRow()">+ Add pattern</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="savePatterns()">Save</button>
+        </div>
+        <div class="msg" id="form-msg"></div>
+      `;
+    }
+
+    function patternRow(value, i) {
+      return `<div style="display:flex;gap:8px;margin-bottom:6px;max-width:300px">
+        <input type="text" class="pattern-input" value="${escHtml(value)}" style="flex:1">
+        <button class="btn btn-secondary btn-sm" onclick="this.parentElement.remove()">✕</button>
+      </div>`;
+    }
+
+    function addPatternRow() {
+      const list = document.getElementById("pattern-list");
+      const div = document.createElement("div");
+      div.innerHTML = patternRow("", list.children.length);
+      list.appendChild(div.firstElementChild);
+    }
+
+    async function savePatterns() {
+      const inputs = document.querySelectorAll(".pattern-input");
+      const patterns = [...inputs].map(i => i.value.trim()).filter(Boolean);
+      const r = await api("PUT", "/settings/error-patterns", patterns);
+      const msg = document.getElementById("form-msg");
+      msg.className = r.ok ? "msg msg-ok" : "msg msg-err";
+      msg.textContent = r.ok ? "Saved." : "Error saving.";
+    }
+
+    // ── Run Monitor ──────────────────────────────────────────────────────────
+
+    let activeRunId = null;
+    let activeRunWs = null;
+    // ip → accumulated output text
+    const machineOutput = {};
+    // ip → last status
+    const machineStatus = {};
+
+    const END_STEP = 4;
+    const STATUS_LABELS = {
+      PENDING: "PENDING", RUNNING: "RUNNING", CLEAN: "CLEAN",
+      FLAGGED: "FLAGGED", TIMED_OUT: "TIMEOUT", DISCONNECTED: "DISCONN",
+      SKIPPED: "SKIPPED",
+    };
+
+    async function startRun() {
+      const msg = document.getElementById("run-start-msg");
+      const startStep = parseInt(document.getElementById("run-start")?.value ?? "1");
+
+      // Collect checked machine IPs
+      const checked = [...document.querySelectorAll(".machine-cb:checked")]
+        .map(cb => {
+          const row = cb.closest("tr");
+          return row?.querySelector("td:nth-child(2)")?.textContent?.trim();
+        }).filter(Boolean);
+
+      if (checked.length === 0) {
+        msg.className = "msg msg-err";
+        msg.textContent = "Select at least one machine.";
+        return;
+      }
+
+      // Disconnect any previous WebSocket
+      if (activeRunWs) { activeRunWs.close(); activeRunWs = null; }
+
+      const wakeOnLan = document.getElementById("run-wol")?.checked ?? true;
+      const r = await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/run`, {
+        start_step: startStep,
+        end_step: END_STEP,
+        machine_ips: checked,
+        wake_on_lan: wakeOnLan,
+      });
+
+      if (!r || !r.ok) {
+        const err = r ? await r.json() : { detail: "Network error" };
+        msg.className = "msg msg-err";
+        msg.textContent = err.detail ?? "Failed to start run.";
+        return;
+      }
+
+      const { run_id } = await r.json();
+      activeRunId = run_id;
+      msg.className = "msg msg-ok";
+      msg.textContent = `Run ${run_id.slice(0, 8)}… started.`;
+
+      // Reset local state
+      Object.keys(machineOutput).forEach(k => delete machineOutput[k]);
+      Object.keys(machineStatus).forEach(k => delete machineStatus[k]);
+
+      renderRunMonitor({ phase: "RUNNING", current_step: startStep, start_step: startStep,
+                         end_step: END_STEP, machines: Object.fromEntries(checked.map(ip => [ip, "PENDING"])),
+                         flagged_lines: {} });
+      connectRunWs(run_id);
+    }
+
+    function connectRunWs(runId) {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${proto}//${location.host}/runs/${runId}/ws`);
+      activeRunWs = ws;
+
+      ws.onmessage = (e) => {
+        const event = JSON.parse(e.data);
+        handleRunEvent(event);
+      };
+
+      ws.onerror = () => {
+        const mon = document.getElementById("run-monitor");
+        if (mon) {
+          const div = document.createElement("div");
+          div.className = "msg msg-err";
+          div.textContent = "WebSocket error — live updates stopped.";
+          mon.prepend(div);
+        }
+      };
+    }
+
+    function handleRunEvent(event) {
+      if (event.type === "snapshot") {
+        renderRunMonitor(event.state);
+        return;
+      }
+      if (event.type === "machine_output") {
+        machineOutput[event.ip] = (machineOutput[event.ip] ?? "") + event.line;
+        const pre = document.getElementById(`out-${event.ip.replace(/\./g, "-")}`);
+        if (pre) { pre.textContent = machineOutput[event.ip]; pre.scrollTop = pre.scrollHeight; }
+        return;
+      }
+      if (event.type === "machine_update") {
+        machineStatus[event.ip] = event.status;
+        updateMachineBadge(event.ip, event.status);
+        return;
+      }
+      if (event.type === "step_started") {
+        updateStepTracker(event.step, "active");
+        return;
+      }
+      if (event.type === "run_paused") {
+        showPauseBanner(event.step);
+        return;
+      }
+      if (event.type === "run_finished") {
+        hidePauseBanner();
+        const phase = event.phase;
+        updateRunHeader(phase);
+        return;
+      }
+    }
+
+    function renderRunMonitor(state) {
+      const mon = document.getElementById("run-monitor");
+      if (!mon) return;
+
+      // Capture current output/status so re-renders don't lose accumulated data
+      const ips = Object.keys(state.machines);
+      ips.forEach(ip => {
+        if (!machineStatus[ip]) machineStatus[ip] = state.machines[ip];
+      });
+
+      const stepBubbles = buildStepTracker(state.start_step, state.end_step, state.current_step, state.phase);
+      const rows = ips.map(ip => machineRow(ip, machineStatus[ip] ?? state.machines[ip])).join("");
+
+      mon.innerHTML = `
+        <div class="run-panel">
+          <div id="pause-banner" style="display:none"></div>
+          <div id="run-header" class="form-section">
+            <h2 id="run-phase-label">${phaseLabel(state.phase)}</h2>
+          </div>
+          <div class="step-track">${stepBubbles}</div>
+          <table class="run-table">
+            <thead>
+              <tr>
+                <th style="width:140px">IP</th>
+                <th style="width:120px">Status</th>
+                <th>Last output</th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody id="run-tbody">${rows}</tbody>
+          </table>
+        </div>
+      `;
+
+      if (state.phase === "PAUSED") showPauseBanner(state.current_step);
+    }
+
+    function buildStepTracker(startStep, endStep, current, phase) {
+      const parts = [];
+      for (let s = startStep; s <= endStep; s++) {
+        if (s > startStep) parts.push(`<div class="step-connector"></div>`);
+        let cls = "";
+        if (phase === "COMPLETED" || s < current) cls = "done";
+        else if (s === current) cls = "active";
+        parts.push(`<div class="step-bubble ${cls}" id="step-bub-${s}">${s}</div>`);
+      }
+      return parts.join("");
+    }
+
+    function machineRow(ip, status) {
+      const key = ip.replace(/\./g, "-");
+      const lastLine = (machineOutput[ip] ?? "").trim().split("\n").pop() ?? "";
+      return `
+        <tr id="row-${key}">
+          <td style="font-family:monospace">${escHtml(ip)}</td>
+          <td><span class="badge badge-${status}" id="badge-${key}">${STATUS_LABELS[status] ?? status}</span></td>
+          <td style="font-family:monospace;font-size:12px;color:#555" id="last-${key}">${escHtml(lastLine)}</td>
+          <td>
+            <button class="output-toggle" onclick="toggleOutput('${key}')" title="Toggle output">▼</button>
+          </td>
+        </tr>
+        <tr id="out-row-${key}" style="display:none">
+          <td colspan="4" style="padding:0 8px 10px">
+            <pre class="output-pre" id="out-${key}" style="display:block;margin:0">${escHtml(machineOutput[ip] ?? "")}</pre>
+          </td>
+        </tr>`;
+    }
+
+    function toggleOutput(key) {
+      const row = document.getElementById(`out-row-${key}`);
+      if (!row) return;
+      row.style.display = row.style.display === "none" ? "table-row" : "none";
+    }
+
+    function updateMachineBadge(ip, status) {
+      const key = ip.replace(/\./g, "-");
+      const badge = document.getElementById(`badge-${key}`);
+      if (badge) {
+        badge.className = `badge badge-${status}`;
+        badge.textContent = STATUS_LABELS[status] ?? status;
+      }
+      const lastEl = document.getElementById(`last-${key}`);
+      if (lastEl) {
+        const lastLine = (machineOutput[ip] ?? "").trim().split("\n").pop() ?? "";
+        lastEl.textContent = lastLine;
+      }
+    }
+
+    function updateStepTracker(step, cls) {
+      const bub = document.getElementById(`step-bub-${step}`);
+      if (bub) { bub.className = `step-bubble ${cls}`; }
+      // Mark previous steps as done
+      for (let s = 1; s < step; s++) {
+        const b = document.getElementById(`step-bub-${s}`);
+        if (b && !b.classList.contains("done")) b.className = "step-bubble done";
+      }
+    }
+
+    function showPauseBanner(step) {
+      const banner = document.getElementById("pause-banner");
+      if (!banner) return;
+      banner.style.display = "flex";
+      banner.className = "pause-banner";
+      banner.innerHTML = `
+        <span>⚠ Run paused after step ${step} — some machines need attention.</span>
+        <button class="btn btn-secondary btn-sm" onclick="sendDecision('retry')">↩ Retry</button>
+        <button class="btn btn-warn btn-sm" onclick="sendDecision('skip')">⟶ Skip</button>
+        <button class="btn btn-danger btn-sm" onclick="sendDecision('abort')">✕ Abort</button>
+      `;
+    }
+
+    function hidePauseBanner() {
+      const banner = document.getElementById("pause-banner");
+      if (banner) banner.style.display = "none";
+    }
+
+    function updateRunHeader(phase) {
+      const lbl = document.getElementById("run-phase-label");
+      if (lbl) lbl.textContent = phaseLabel(phase);
+      // Mark all steps done on completion
+      if (phase === "COMPLETED") {
+        document.querySelectorAll(".step-bubble").forEach(b => b.className = "step-bubble done");
+      }
+    }
+
+    function phaseLabel(phase) {
+      return {
+        RUNNING: "Running", PAUSED: "Paused — awaiting decision",
+        COMPLETED: "Completed", ABORTED: "Aborted",
+      }[phase] ?? phase;
+    }
+
+    async function sendDecision(action) {
+      if (!activeRunId) return;
+      hidePauseBanner();
+      await api("POST", `/runs/${activeRunId}/decide`, { action });
+    }
+
+    loadClassrooms();
+  </script>
+</body>
+</html>

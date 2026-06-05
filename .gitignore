@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Tests
+.pytest_cache/
+.coverage
+
+# Editor
+.idea/
+.vscode/
+
+# Runtime config (user-specific, contains key paths)
+~/.config/classctl/
+
+# Dev environment
+dev/*.log
