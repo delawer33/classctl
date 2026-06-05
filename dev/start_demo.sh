@@ -70,18 +70,42 @@ for i in "${!NAMES[@]}"; do
          chmod 600 /home/testuser/.ssh/authorized_keys && \
          chown testuser:testuser /home/testuser/.ssh/authorized_keys"
 
-    # Create step scripts.
-    # ws-3 step 1 outputs an error pattern to demo the pause/retry/skip flow.
+    # Authorised key already set above; now create step scripts in three sets:
+    #   /home/testuser/scripts/demo/  — 1 s/step  (instant, for UI testing)
+    #   /home/testuser/scripts/short/ — 450 s/step (~30 min total)
+    #   /home/testuser/scripts/long/  — 1350 s/step (~1.5 h total)
+    #
+    # ws-3 step 1 outputs an error pattern in every set to demo pause/retry/skip.
+
+    docker exec "$NAME" sh -c \
+        "mkdir -p /home/testuser/scripts/demo \
+                  /home/testuser/scripts/short \
+                  /home/testuser/scripts/long"
+
     for step in 1 2 3 4; do
         if [ "$NAME" = "ws-3" ] && [ "$step" = "1" ]; then
-            ARGS="--output-pattern error --sleep 1"
+            ERROR_ARG="--output-pattern error"
         else
-            ARGS="--sleep 1"
+            ERROR_ARG=""
         fi
+
+        # demo: 1 second per step
         docker exec "$NAME" sh -c \
-            "printf '#!/bin/sh\n/home/testuser/scripts/fake_script.sh $ARGS\n' \
-             > /home/testuser/scripts/step${step}.sh && \
-             chmod +x /home/testuser/scripts/step${step}.sh"
+            "printf '#!/bin/sh\n/home/testuser/scripts/fake_script.sh $ERROR_ARG --sleep 1\n' \
+             > /home/testuser/scripts/demo/step${step}.sh && \
+             chmod +x /home/testuser/scripts/demo/step${step}.sh"
+
+        # short: 450 seconds per step (~30 min total across 4 steps)
+        docker exec "$NAME" sh -c \
+            "printf '#!/bin/sh\n/home/testuser/scripts/fake_script.sh $ERROR_ARG --sleep 450\n' \
+             > /home/testuser/scripts/short/step${step}.sh && \
+             chmod +x /home/testuser/scripts/short/step${step}.sh"
+
+        # long: 1350 seconds per step (~1.5 h total across 4 steps)
+        docker exec "$NAME" sh -c \
+            "printf '#!/bin/sh\n/home/testuser/scripts/fake_script.sh $ERROR_ARG --sleep 1350\n' \
+             > /home/testuser/scripts/long/step${step}.sh && \
+             chmod +x /home/testuser/scripts/long/step${step}.sh"
     done
 done
 
@@ -95,7 +119,7 @@ cat > "$CONFIG_PATH" << JSON
       "subnet": "$SUBNET",
       "ssh_key_path": "$KEY_ABS",
       "username": "testuser",
-      "script_directory": "/home/testuser/scripts",
+      "script_directory": "/home/testuser/scripts/demo",
       "step_mapping": {
         "1": "step1.sh",
         "2": "step2.sh",
@@ -119,6 +143,13 @@ echo ""
 echo "   ws-1  ${IPS[0]}  — steps 1-4 succeed"
 echo "   ws-2  ${IPS[1]}  — steps 1-4 succeed"
 echo "   ws-3  ${IPS[2]}  — step 1 outputs an error → pause demo"
+echo ""
+echo "   Script directories on each machine:"
+echo "     /home/testuser/scripts/demo/   — ~1 s/step  (UI testing)"
+echo "     /home/testuser/scripts/short/  — ~7.5 min/step  (~30 min total)"
+echo "     /home/testuser/scripts/long/   — ~22.5 min/step (~1.5 h total)"
+echo ""
+echo "   Change 'Script directory' in the classroom config to switch."
 echo ""
 echo "Start the app:"
 echo "   python -m classctl"

@@ -311,6 +311,7 @@
       const r = await api("GET", "/classrooms");
       classrooms = await r.json();
       renderList();
+      return classrooms;
     }
 
     function renderList() {
@@ -428,7 +429,12 @@
         ` : ""}
       `;
 
-      if (!isNew) loadMachines(room.name);
+      if (!isNew) {
+        loadMachines(room.name);
+        if (activeRunId && activeRunRoom === room.name) {
+          restoreRunMonitor();
+        }
+      }
     }
 
     async function loadMachines(roomName) {
@@ -625,6 +631,7 @@
 
     let activeRunId = null;
     let activeRunWs = null;
+    let activeRunRoom = null;  // classroom name that owns the active run
     // ip → accumulated output text
     const machineOutput = {};
     // ip → last status
@@ -636,6 +643,27 @@
       FLAGGED: "FLAGGED", TIMED_OUT: "TIMEOUT", DISCONNECTED: "DISCONN",
       SKIPPED: "SKIPPED",
     };
+
+    function restoreRunMonitor() {
+      // Rebuild the monitor DOM from current in-memory state.
+      // The WebSocket is still running — no reconnect needed.
+      const phase = activeRunWs && activeRunWs.readyState === WebSocket.OPEN
+        ? "RUNNING" : "RUNNING";  // best guess; snapshot will correct it shortly
+      const machines = {};
+      Object.entries(machineStatus).forEach(([ip, s]) => machines[ip] = s);
+      // Pull full state from server to get correct phase/step
+      api("GET", `/runs/${activeRunId}/state`).then(async r => {
+        if (!r || !r.ok) return;
+        const state = await r.json();
+        if (state.output) Object.assign(machineOutput, state.output);
+        Object.entries(state.machines).forEach(([ip, s]) => machineStatus[ip] = s);
+        renderRunMonitor(state);
+        // Reconnect WS only if it's gone
+        if (!activeRunWs || activeRunWs.readyState > WebSocket.OPEN) {
+          connectRunWs(activeRunId);
+        }
+      });
+    }
 
     async function startRun() {
       const msg = document.getElementById("run-start-msg");
@@ -674,6 +702,8 @@
 
       const { run_id } = await r.json();
       activeRunId = run_id;
+      activeRunRoom = activeRoom;
+      localStorage.setItem("classctl_run_id", run_id);
       msg.className = "msg msg-ok";
       msg.textContent = `Run ${run_id.slice(0, 8)}… started.`;
 
@@ -687,25 +717,45 @@
       connectRunWs(run_id);
     }
 
-    function connectRunWs(runId) {
+    function connectRunWs(runId, retryDelay = 1000) {
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       const ws = new WebSocket(`${proto}//${location.host}/runs/${runId}/ws`);
       activeRunWs = ws;
 
       ws.onmessage = (e) => {
         const event = JSON.parse(e.data);
-        handleRunEvent(event);
+        if (event.type !== "ping") handleRunEvent(event);
       };
 
-      ws.onerror = () => {
-        const mon = document.getElementById("run-monitor");
-        if (mon) {
-          const div = document.createElement("div");
-          div.className = "msg msg-err";
-          div.textContent = "WebSocket error — live updates stopped.";
-          mon.prepend(div);
-        }
+      ws.onclose = () => {
+        // Don't reconnect if the run finished cleanly or was aborted
+        if (!activeRunId || activeRunId !== runId) return;
+        const phase = document.getElementById("run-phase-label")?.textContent ?? "";
+        if (phase === "Completed" || phase === "Aborted") return;
+
+        // Reconnect with exponential backoff (cap at 30s)
+        const delay = Math.min(retryDelay, 30000);
+        setTimeout(() => {
+          if (activeRunId === runId) {
+            // Fetch latest state first so output is up to date, then reconnect
+            api("GET", `/runs/${runId}/state`).then(async r => {
+              if (!r || !r.ok) return;
+              const state = await r.json();
+              if (state.phase === "COMPLETED" || state.phase === "ABORTED") {
+                localStorage.removeItem("classctl_run_id");
+                activeRunRoom = null;
+                return;
+              }
+              if (state.output) Object.assign(machineOutput, state.output);
+              Object.entries(state.machines).forEach(([ip, s]) => machineStatus[ip] = s);
+              renderRunMonitor(state);
+              connectRunWs(runId, delay * 2);
+            });
+          }
+        }, delay);
       };
+
+      ws.onerror = () => { /* onclose fires after onerror, handles reconnect */ };
     }
 
     function handleRunEvent(event) {
@@ -734,8 +784,9 @@
       }
       if (event.type === "run_finished") {
         hidePauseBanner();
-        const phase = event.phase;
-        updateRunHeader(phase);
+        updateRunHeader(event.phase);
+        localStorage.removeItem("classctl_run_id");
+        activeRunRoom = null;
         return;
       }
     }
@@ -878,7 +929,61 @@
       await api("POST", `/runs/${activeRunId}/decide`, { action });
     }
 
-    loadClassrooms();
+    // ── Restore run on page refresh ──────────────────────────────────────────
+
+    async function tryRestoreRun() {
+      const savedId = localStorage.getItem("classctl_run_id");
+      if (!savedId) return;
+
+      const r = await api("GET", `/runs/${savedId}/state`);
+      if (!r || !r.ok) {
+        localStorage.removeItem("classctl_run_id");
+        return;
+      }
+
+      const state = await r.json();
+      // Nothing to restore if run already finished
+      if (state.phase === "COMPLETED" || state.phase === "ABORTED") {
+        localStorage.removeItem("classctl_run_id");
+        return;
+      }
+
+      activeRunId = savedId;
+
+      // Repopulate accumulated output from server state
+      Object.keys(machineOutput).forEach(k => delete machineOutput[k]);
+      if (state.output) Object.assign(machineOutput, state.output);
+      Object.keys(machineStatus).forEach(k => delete machineStatus[k]);
+      Object.entries(state.machines).forEach(([ip, s]) => machineStatus[ip] = s);
+
+      // Find which classroom owns these machine IPs and select it so the
+      // main panel is rendered and has a #run-monitor element to attach to
+      const runIps = new Set(Object.keys(state.machines));
+      const ownerRoom = classrooms.find(c =>
+        (c.machines ?? []).some(m => runIps.has(m.ip))
+      );
+      if (ownerRoom) {
+        activeRoom = ownerRoom.name;
+        activeRunRoom = ownerRoom.name;
+        renderList();
+        renderForm(ownerRoom, false);
+        // renderForm triggers loadMachines which is async; wait a tick
+        await new Promise(r => setTimeout(r, 50));
+      }
+
+      // Render monitor and reconnect WebSocket
+      renderRunMonitor(state);
+      connectRunWs(savedId);
+
+      // Show a banner so the user knows we reconnected
+      const msg = document.getElementById("run-start-msg");
+      if (msg) {
+        msg.className = "msg msg-ok";
+        msg.textContent = `Reconnected to run ${savedId.slice(0, 8)}…`;
+      }
+    }
+
+    loadClassrooms().then(tryRestoreRun);
   </script>
 </body>
 </html>

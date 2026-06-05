@@ -118,11 +118,15 @@ class PipelineRunner:
                 action = decision["action"]
 
                 if action == "retry":
+                    before = {ip: s for ip, s in self._rsm.state.machines.items()}
                     self._rsm.operator_retry(decision.get("ips"))
+                    self._emit_changed_machines(before)
                     # step variable stays the same — re-run current step
                 elif action == "skip":
+                    before = {ip: s for ip, s in self._rsm.state.machines.items()}
                     self._rsm.operator_skip()
                     step = self._rsm.state.current_step
+                    self._emit_changed_machines(before)
                 elif action == "abort":
                     self._rsm.operator_abort()
                     break
@@ -184,7 +188,7 @@ class PipelineRunner:
 
         machine = self._machines.get(ip, {})
         port = machine.get("port", 22)
-        username = self._classroom["username"]
+        username = machine.get("username") or self._classroom.get("username", "student")
         key_path = self._classroom["ssh_key_path"]
 
         def on_output(chunk: str) -> None:
@@ -207,6 +211,12 @@ class PipelineRunner:
             "ip": ip,
             "status": self._rsm.state.machines[ip].name,
         })
+
+    def _emit_changed_machines(self, before: dict) -> None:
+        """Emit machine_update for every machine whose status changed since `before`."""
+        for ip, status in self._rsm.state.machines.items():
+            if status != before.get(ip):
+                self._emit({"type": "machine_update", "ip": ip, "status": status.name})
 
     def _emit(self, event: dict) -> None:
         self._event_queue.put_nowait(event)

@@ -48,6 +48,7 @@ def _serialize_state(state) -> dict:
         "end_step": state.end_step,
         "machines": {ip: s.name for ip, s in state.machines.items()},
         "flagged_lines": state.flagged_lines,
+        "output": state.output,  # ip → full captured output, for UI restore on refresh
     }
 
 # Static files live next to this module; resolved at import time so the path
@@ -237,7 +238,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
             machines = [m for m in machines if m["ip"] in request.machine_ips]
 
         key_path = room["ssh_key_path"]
-        username = room["username"]
+        username = room.get("username", "student")
 
         async def _safe(ip):
             try:
