@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timezone
 from classctl.core.config import ConfigManager
 
 ROOM = {
@@ -70,3 +71,14 @@ def test_merge_retains_machines_not_in_discovery(cm):
     macs = {m["mac"] for m in cm.get_machines("Room A")}
     assert MACHINE_A["mac"] in macs
     assert MACHINE_B["mac"] in macs
+
+
+# ── Cycle: merge_discovered writes machines_updated_at (issue #26) ──────────
+
+def test_merge_writes_machines_updated_at(cm):
+    before = datetime.now(timezone.utc)
+    cm.merge_discovered("Room A", [MACHINE_A])
+    room = cm.get_classroom("Room A")
+    assert "machines_updated_at" in room
+    ts = datetime.fromisoformat(room["machines_updated_at"])
+    assert ts >= before  # timestamp is current, not in the past

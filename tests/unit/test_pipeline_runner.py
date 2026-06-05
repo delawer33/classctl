@@ -229,6 +229,46 @@ async def test_abort_stops_pipeline(tmp_path):
     assert "step2.sh" not in scripts_run
 
 
+# --- WoL polling events (issue #20) ---
+
+async def test_wol_polling_event_emitted_while_waiting(tmp_path):
+    """wol_polling events are emitted periodically while SSH polling is in progress."""
+    key = tmp_path / "key"; key.write_text("x")
+
+    # A poller that delays briefly so the emitter loop has a chance to fire
+    poll_started = asyncio.Event()
+
+    class SlowPoller:
+        timeout = 300.0
+
+        async def wait(self, ips, port=22):
+            poll_started.set()
+            await asyncio.sleep(0.1)  # brief delay — enough for one emit cycle
+            return set(ips), set()
+
+    rsm = RunStateMachine(start_step=1, end_step=1, target_ips=["192.168.1.10"])
+    runner = PipelineRunner(
+        rsm=rsm,
+        classroom=_classroom(str(key)),
+        machines=[{"ip": "192.168.1.10", "mac": "aa:bb:cc:00:00:01"}],
+        error_patterns=[],
+        wol_sender=lambda mac: None,
+        ssh_poller=SlowPoller(),
+        run_script=ScriptRecorder(),
+        post_wol_delay=0.0,
+        wol_poll_emit_interval=0.05,  # fire quickly in tests
+    )
+    await runner.run()
+
+    events = []
+    while not runner.events.empty():
+        events.append(runner.events.get_nowait())
+
+    polling_events = [e for e in events if e["type"] == "wol_polling"]
+    assert len(polling_events) >= 1
+    assert all("elapsed_seconds" in e for e in polling_events)
+
+
 # --- Output size cap (issue #24) ---
 
 async def test_output_cap_limits_stored_snapshot(tmp_path):

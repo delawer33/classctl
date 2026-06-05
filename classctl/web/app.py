@@ -1,7 +1,10 @@
 import asyncio
 import uuid
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Literal
+
+_STALE_THRESHOLD = timedelta(hours=12)
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -198,6 +201,13 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
             wol_sender=send_wol if request.wake_on_lan else None,
         )
 
+        updated_at_raw = room.get("machines_updated_at")
+        if updated_at_raw:
+            updated_at = datetime.fromisoformat(updated_at_raw)
+            stale = (datetime.now(timezone.utc) - updated_at) > _STALE_THRESHOLD
+        else:
+            stale = True
+
         run_id = str(uuid.uuid4())
         app.state.active_run_id = run_id
 
@@ -207,7 +217,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
         task = asyncio.create_task(_run_pipeline(runner, on_finish=_clear_active))
         app.state.runs[run_id] = {"runner": runner, "task": task}
-        return {"run_id": run_id}
+        return {"run_id": run_id, "stale_machines_warning": stale}
 
     @app.get("/runs/{run_id}/state")
     def get_run_state(run_id: str):

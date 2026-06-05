@@ -66,6 +66,41 @@ def test_start_run_returns_400_when_step_missing_from_mapping(tmp_path):
     assert "2" in r.json()["detail"]
 
 
+# --- POST /classrooms/{name}/run — stale Machine List warning (issue #26) ---
+
+def test_start_run_warns_when_machines_updated_at_absent(tmp_path):
+    c = _client(tmp_path)
+    r = c.post("/classrooms/Lab 1/run", json={"start_step": 1, "end_step": 4})
+    assert r.status_code == 202
+    assert r.json().get("stale_machines_warning") is True
+
+
+def test_start_run_warns_when_machines_updated_at_is_old(tmp_path):
+    from datetime import datetime, timezone, timedelta
+    key = tmp_path / "key"; key.write_text("x")
+    cm = ConfigManager(tmp_path / "config.json")
+    old_ts = (datetime.now(timezone.utc) - timedelta(hours=13)).isoformat()
+    room = {**ROOM, "ssh_key_path": str(key), "machines_updated_at": old_ts}
+    cm.add_classroom(room)
+    c = TestClient(create_app(config=cm))
+    r = c.post("/classrooms/Lab 1/run", json={"start_step": 1, "end_step": 4})
+    assert r.status_code == 202
+    assert r.json().get("stale_machines_warning") is True
+
+
+def test_start_run_no_warning_when_machines_updated_at_is_fresh(tmp_path):
+    from datetime import datetime, timezone, timedelta
+    key = tmp_path / "key"; key.write_text("x")
+    cm = ConfigManager(tmp_path / "config.json")
+    fresh_ts = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    room = {**ROOM, "ssh_key_path": str(key), "machines_updated_at": fresh_ts}
+    cm.add_classroom(room)
+    c = TestClient(create_app(config=cm))
+    r = c.post("/classrooms/Lab 1/run", json={"start_step": 1, "end_step": 4})
+    assert r.status_code == 202
+    assert r.json().get("stale_machines_warning") is False
+
+
 # --- POST /classrooms/{name}/run — RunGuard (issue #18) ---
 
 def test_run_guard_returns_409_when_run_active(tmp_path):

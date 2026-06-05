@@ -1,5 +1,6 @@
 import copy
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Patterns cover the most common error vocabulary in shell/Python scripts.
@@ -90,6 +91,8 @@ class ConfigManager:
                 existing[mac]["ip"] = found["ip"]
             else:
                 machines.append(found)
+        room = self.get_classroom(classroom_name)
+        room["machines_updated_at"] = datetime.now(timezone.utc).isoformat()
         self._save()
 
     def save_error_patterns(self, patterns: list[str]) -> None:

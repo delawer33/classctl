@@ -57,6 +57,7 @@ class PipelineRunner:
         run_script: RunScriptFn = _default_run_script,
         post_wol_delay: float = 60.0,
         script_timeout: float = DEFAULT_SCRIPT_TIMEOUT,
+        wol_poll_emit_interval: float = 30.0,  # seconds between wol_polling events
     ) -> None:
         self._rsm = rsm
         self._classroom = classroom
@@ -71,6 +72,7 @@ class PipelineRunner:
         self._run_script = run_script
         self._post_wol_delay = post_wol_delay
         self._script_timeout = script_timeout
+        self._wol_poll_emit_interval = wol_poll_emit_interval
         self._decision_queue: asyncio.Queue = asyncio.Queue()
         self._event_queue: asyncio.Queue = asyncio.Queue()
 
@@ -165,9 +167,18 @@ class PipelineRunner:
                 self._wol_sender(mac)
         self._emit({"type": "wol_sent", "ips": ips})
 
-        # Wait for SSH to become available on each machine
+        # Wait for SSH to become available, emitting periodic progress events
         port = self._machines.get(ips[0], {}).get("port", 22) if ips else 22
-        reachable, timed_out = await self._ssh_poller.wait(ips, port=port)
+        poll_task = asyncio.create_task(self._ssh_poller.wait(ips, port=port))
+        start = asyncio.get_event_loop().time()
+        while not poll_task.done():
+            await asyncio.sleep(self._wol_poll_emit_interval)
+            if not poll_task.done():
+                self._emit({
+                    "type": "wol_polling",
+                    "elapsed_seconds": int(asyncio.get_event_loop().time() - start),
+                })
+        reachable, timed_out = await poll_task
         self._emit({
             "type": "wol_result",
             "reachable": list(reachable),

@@ -447,7 +447,7 @@
       renderMachineList(roomName, machines);
     }
 
-    function renderMachineList(roomName, machines) {
+    function renderMachineList(roomName, machines, knownMacs = new Set()) {
       const wrap = document.getElementById("machine-list-wrap");
       if (!wrap) return;
       if (machines.length === 0) {
@@ -465,19 +465,24 @@
             </tr>
           </thead>
           <tbody>
-            ${machines.map(m => `
-              <tr style="border-top:1px solid #f0f0f0">
+            ${machines.map(m => {
+              const isNew = knownMacs.size > 0 && !knownMacs.has(m.mac);
+              const rowStyle = isNew ? "border-top:1px solid #f0f0f0;background:#fffbe6" : "border-top:1px solid #f0f0f0";
+              const newTag = isNew ? `<span style="font-size:10px;color:#b8860b;margin-left:6px">новая машина</span>` : "";
+              return `
+              <tr style="${rowStyle}">
                 <td style="padding:6px 0;text-align:center">
                   <input type="checkbox" class="machine-cb" data-mac="${escHtml(m.mac)}" checked>
                 </td>
                 <td style="padding:6px 8px;font-family:monospace;font-size:13px">${escHtml(m.ip)}</td>
-                <td style="padding:6px 8px;font-family:monospace;font-size:12px;color:#666">${escHtml(m.mac)}</td>
+                <td style="padding:6px 8px;font-family:monospace;font-size:12px;color:#666">${escHtml(m.mac)}${newTag}</td>
                 <td style="padding:6px 0;text-align:center">
                   <button class="btn btn-secondary btn-sm"
                           onclick="removeMachine('${escHtml(roomName)}','${escHtml(m.mac)}')"
                           title="Удалить">✕</button>
                 </td>
-              </tr>`).join("")}
+              </tr>`;
+            }).join("")}
           </tbody>
         </table>
       `;
@@ -510,17 +515,25 @@
       await loadMachines(roomName);
     }
 
+    // MACs present before the last discovery — used to highlight new machines
+    let _knownMacsBeforeDiscover = new Set();
+
     async function discoverMachines() {
       const btn = document.getElementById("btn-discover");
       const msg = document.getElementById("discover-msg");
       if (btn) btn.disabled = true;
       if (msg) { msg.className = "msg"; msg.textContent = "Сканирование…"; }
 
+      // Snapshot MACs currently in the table before the scan
+      _knownMacsBeforeDiscover = new Set(
+        [...document.querySelectorAll(".machine-cb")].map(cb => cb.dataset.mac)
+      );
+
       const r = await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/discover`);
 
       if (r && r.ok) {
         const machines = await r.json();
-        await loadMachines(activeRoom);
+        renderMachineList(activeRoom, machines, _knownMacsBeforeDiscover);
         if (msg) {
           msg.className = "msg msg-ok";
           msg.textContent = machines.length > 0
@@ -642,6 +655,9 @@
     const machineOutput = {};
     // ip → last status
     const machineStatus = {};
+    // step elapsed timer state
+    let stepStartedAt = null;
+    let stepElapsedTimer = null;
 
     const END_STEP = 4;
     const STATUS_LABELS = {
@@ -706,12 +722,21 @@
         return;
       }
 
-      const { run_id } = await r.json();
+      const body = await r.json();
+      const { run_id, stale_machines_warning } = body;
       activeRunId = run_id;
       activeRunRoom = activeRoom;
       localStorage.setItem("classctl_run_id", run_id);
       msg.className = "msg msg-ok";
       msg.textContent = `Запуск ${run_id.slice(0, 8)}… начат.`;
+
+      if (stale_machines_warning) {
+        const staleEl = document.createElement("div");
+        staleEl.className = "msg";
+        staleEl.style.cssText = "margin-top:6px;padding:8px 12px;background:#fffbe6;border:1px solid #ffe082;border-radius:4px;color:#7a5c00";
+        staleEl.textContent = "Список машин обновлялся более 12 часов назад. Рекомендуется запустить обнаружение перед следующим запуском.";
+        msg.after(staleEl);
+      }
 
       // Reset local state
       Object.keys(machineOutput).forEach(k => delete machineOutput[k]);
@@ -765,6 +790,18 @@
     }
 
     function handleRunEvent(event) {
+      if (event.type === "wol_sent") {
+        _renderWolStatus(`WoL-пакеты отправлены — ожидание SSH для ${event.ips.length} машин…`);
+        return;
+      }
+      if (event.type === "wol_polling") {
+        _renderWolStatus(`Ожидание SSH… ${event.elapsed_seconds} с`);
+        return;
+      }
+      if (event.type === "wol_result") {
+        _clearWolStatus();
+        return;
+      }
       if (event.type === "snapshot") {
         renderRunMonitor(event.state);
         return;
@@ -782,6 +819,7 @@
       }
       if (event.type === "step_started") {
         updateStepTracker(event.step, "active");
+        startStepTimer(event.step);
         return;
       }
       if (event.type === "run_paused") {
@@ -791,6 +829,7 @@
       if (event.type === "run_finished") {
         hidePauseBanner();
         updateRunHeader(event.phase);
+        stopStepTimer();
         localStorage.removeItem("classctl_run_id");
         activeRunRoom = null;
         return;
@@ -814,7 +853,9 @@
         <div class="run-panel">
           <div id="pause-banner" style="display:none"></div>
           <div id="run-header" class="form-section">
-            <h2 id="run-phase-label">${phaseLabel(state.phase)}</h2>
+            <h2 id="run-phase-label">${phaseLabel(state.phase)}
+              <span id="step-elapsed" style="font-size:12px;font-weight:400;color:#aaa;margin-left:12px"></span>
+            </h2>
           </div>
           <div class="step-track">${stepBubbles}</div>
           <table class="run-table">
@@ -900,8 +941,37 @@
       if (!banner) return;
       banner.style.display = "flex";
       banner.className = "pause-banner";
+
+      // Build per-category lists from in-memory state
+      const flagged = [], timedOut = [], disconnected = [];
+      for (const [ip, s] of Object.entries(machineStatus)) {
+        if (s === "FLAGGED") flagged.push(ip);
+        else if (s === "TIMED_OUT") timedOut.push(ip);
+        else if (s === "DISCONNECTED") disconnected.push(ip);
+      }
+      const total = flagged.length + timedOut.length + disconnected.length;
+
+      // Find the most common last error line among flagged machines
+      let commonError = "";
+      if (flagged.length) {
+        const lastLines = flagged.map(ip => {
+          const out = (machineOutput[ip] ?? "").trimEnd();
+          return out.split("\n").pop() ?? "";
+        }).filter(Boolean);
+        if (lastLines.length) {
+          const freq = {};
+          lastLines.forEach(l => freq[l] = (freq[l] ?? 0) + 1);
+          commonError = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+        }
+      }
+
+      let summary = `⚠ Остановлено после шага ${step} — ${total} машин требуют действия`;
+      if (flagged.length)      summary += `<br><small>ОШИБКИ (${flagged.length}): ${flagged.join(", ")}${commonError ? ` — «${escHtml(commonError.slice(0, 80))}»` : ""}</small>`;
+      if (timedOut.length)     summary += `<br><small>ТАЙМАУТ (${timedOut.length}): ${timedOut.join(", ")}</small>`;
+      if (disconnected.length) summary += `<br><small>РАЗРЫВ (${disconnected.length}): ${disconnected.join(", ")}</small>`;
+
       banner.innerHTML = `
-        <span>⚠ Выполнение остановлено после шага ${step} — требуется действие.</span>
+        <span style="flex:1;min-width:150px">${summary}</span>
         <button class="btn btn-secondary btn-sm" onclick="sendDecision('retry')">↩ Повтор</button>
         <button class="btn btn-warn btn-sm" onclick="sendDecision('skip')">⟶ Пропустить</button>
         <button class="btn btn-danger btn-sm" onclick="sendDecision('abort')">✕ Прервать</button>
@@ -922,6 +992,47 @@
       }
     }
 
+    function _renderWolStatus(text) {
+      let el = document.getElementById("wol-status");
+      if (!el) {
+        const mon = document.getElementById("run-monitor");
+        if (!mon) return;
+        el = document.createElement("div");
+        el.id = "wol-status";
+        el.style.cssText = "padding:10px 14px;background:#f0f4ff;border:1px solid #c7d4fc;border-radius:4px;font-size:13px;margin-bottom:16px;color:#4a6cf7";
+        mon.prepend(el);
+      }
+      el.textContent = text;
+    }
+
+    function _clearWolStatus() {
+      const el = document.getElementById("wol-status");
+      if (el) el.remove();
+    }
+
+    function _fmtElapsed(seconds) {
+      if (seconds < 60) return `${seconds} с`;
+      return `${Math.floor(seconds / 60)} мин ${seconds % 60} с`;
+    }
+
+    function startStepTimer(step) {
+      stopStepTimer();
+      stepStartedAt = Date.now();
+      stepElapsedTimer = setInterval(() => {
+        const el = document.getElementById("step-elapsed");
+        if (el) el.textContent = `Шаг ${step}: ${_fmtElapsed(Math.floor((Date.now() - stepStartedAt) / 1000))}`;
+      }, 1000);
+    }
+
+    function stopStepTimer() {
+      if (stepElapsedTimer) { clearInterval(stepElapsedTimer); stepElapsedTimer = null; }
+      const el = document.getElementById("step-elapsed");
+      if (el && stepStartedAt) {
+        el.textContent = el.textContent.replace(/^(Шаг \d+): /, "$1 завершён за ");
+      }
+      stepStartedAt = null;
+    }
+
     function phaseLabel(phase) {
       return {
         RUNNING: "Выполняется", PAUSED: "Пауза — ожидание решения",
@@ -931,6 +1042,9 @@
 
     async function sendDecision(action) {
       if (!activeRunId) return;
+      if (action === "abort") {
+        if (!confirm("Прервать выполнение? Это действие необратимо.")) return;
+      }
       hidePauseBanner();
       await api("POST", `/runs/${activeRunId}/decide`, { action });
     }
