@@ -1,6 +1,9 @@
 import asyncio
 from typing import Callable, Coroutine, Any
 
+OUTPUT_CAP_BYTES = 512 * 1024  # max bytes stored per machine in RunState.output
+OUTPUT_CAP_SENTINEL = "[вывод усечён — превышен лимит 512 КБ]\n"
+
 from classctl.core.config_validator import validate as validate_classroom
 from classctl.core.error_detector import detect
 from classctl.core.run_state_machine import RunStateMachine, RunPhase, MachineStatus
@@ -61,7 +64,10 @@ class PipelineRunner:
         self._machines: dict[str, dict] = {m["ip"]: m for m in machines}
         self._error_patterns = error_patterns
         self._wol_sender = wol_sender
+        wol_timeout = classroom.get("wol_timeout")
         self._ssh_poller = ssh_poller or SSHPoller()
+        if wol_timeout is not None:
+            self._ssh_poller.timeout = float(wol_timeout)
         self._run_script = run_script
         self._post_wol_delay = post_wol_delay
         self._script_timeout = script_timeout
@@ -201,7 +207,10 @@ class PipelineRunner:
             self._rsm.machine_disconnected(ip)
         else:
             flagged = detect(result.output, self._error_patterns)
-            self._rsm.machine_completed(ip, output=result.output, flagged_lines=flagged)
+            stored = result.output
+            if len(stored.encode()) > OUTPUT_CAP_BYTES:
+                stored = stored.encode()[:OUTPUT_CAP_BYTES].decode(errors="replace") + OUTPUT_CAP_SENTINEL
+            self._rsm.machine_completed(ip, output=stored, flagged_lines=flagged)
 
         self._emit({
             "type": "machine_update",

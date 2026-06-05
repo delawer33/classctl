@@ -229,6 +229,41 @@ async def test_abort_stops_pipeline(tmp_path):
     assert "step2.sh" not in scripts_run
 
 
+# --- Output size cap (issue #24) ---
+
+async def test_output_cap_limits_stored_snapshot(tmp_path):
+    """Stored output is capped; the sentinel line appears when cap is exceeded."""
+    from classctl.core.pipeline_runner import OUTPUT_CAP_BYTES
+    key = tmp_path / "key"; key.write_text("x")
+    big_chunk = "x" * (OUTPUT_CAP_BYTES + 1)
+    recorder = ScriptRecorder({
+        ("192.168.1.10", 0): ExecutionResult(ExecutionStatus.COMPLETED, big_chunk),
+    })
+    rsm = RunStateMachine(start_step=1, end_step=1, target_ips=["192.168.1.10"])
+    runner = _runner(rsm, _classroom(str(key)), recorder)
+    await runner.run()
+
+    stored = runner.state.output.get("192.168.1.10", "")
+    assert len(stored) <= OUTPUT_CAP_BYTES + 200   # cap + sentinel headroom
+    assert "[вывод усечён" in stored
+
+
+async def test_output_under_cap_stored_in_full(tmp_path):
+    from classctl.core.pipeline_runner import OUTPUT_CAP_BYTES
+    key = tmp_path / "key"; key.write_text("x")
+    small_chunk = "hello\n" * 10
+    recorder = ScriptRecorder({
+        ("192.168.1.10", 0): ExecutionResult(ExecutionStatus.COMPLETED, small_chunk),
+    })
+    rsm = RunStateMachine(start_step=1, end_step=1, target_ips=["192.168.1.10"])
+    runner = _runner(rsm, _classroom(str(key)), recorder)
+    await runner.run()
+
+    stored = runner.state.output.get("192.168.1.10", "")
+    assert stored == small_chunk
+    assert "[вывод усечён" not in stored
+
+
 # --- Run completes cleanly ---
 
 async def test_run_completes_with_completed_phase(tmp_path):

@@ -11,7 +11,7 @@ class SSHPoller:
     is sufficient to know the host is up and sshd is listening.
     """
 
-    timeout: float = 60.0        # seconds to wait per machine
+    timeout: float = 300.0       # seconds to wait per machine (real HW can take 2-3 min)
     poll_interval: float = 2.0   # seconds between retries
 
     async def wait(

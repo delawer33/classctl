@@ -367,6 +367,10 @@
             <label>Каталог скриптов</label>
             <input type="text" id="f-dir" value="${escHtml(room?.script_directory ?? '/home/student/VBox_install')}">
           </div>
+          <div class="field">
+            <label>Таймаут WoL, с <span style="color:#aaa;font-size:11px">(по умолчанию: 300)</span></label>
+            <input type="text" id="f-wol-timeout" value="${escHtml(String(room?.wol_timeout ?? ''))}" placeholder="300" style="max-width:120px">
+          </div>
         </div>
 
         <div class="form-section">
@@ -531,6 +535,7 @@
     }
 
     async function saveRoom(isNew) {
+      const wolRaw = document.getElementById("f-wol-timeout").value.trim();
       const payload = {
         name: document.getElementById("f-name").value.trim(),
         subnet: document.getElementById("f-subnet").value.trim(),
@@ -542,6 +547,7 @@
         ),
         machines: [],
       };
+      if (wolRaw) payload.wol_timeout = parseInt(wolRaw, 10);
 
       const method = isNew ? "POST" : "PUT";
       const path = isNew ? "/classrooms" : `/classrooms/${encodeURIComponent(activeRoom)}`;
