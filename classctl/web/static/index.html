@@ -345,6 +345,18 @@
          <input type="text" id="step-${n}" value="${escHtml(sm[n] ?? '')}" placeholder="filename.sh">`
       ).join("");
 
+      // Stale machine list warning — shown above Run config when list is old or absent
+      const staleBanner = (() => {
+        if (isNew) return "";
+        const updatedAt = room?.machines_updated_at;
+        const stale = !updatedAt || (Date.now() - new Date(updatedAt).getTime()) > 12 * 3600000;
+        if (!stale) return "";
+        const msg = updatedAt
+          ? "Список машин обновлялся более 12 часов назад."
+          : "Список машин ещё не обновлялся.";
+        return `<div style="padding:8px 12px;background:#fffbe6;border:1px solid #ffe082;border-radius:4px;font-size:12px;color:#7a5c00;margin-bottom:12px">⚠ ${msg} Рекомендуется запустить обнаружение перед запуском.</div>`;
+      })();
+
       main.innerHTML = `
         <div class="form-section">
           <h2>${isNew ? "Новый класс" : "Редактировать класс"}</h2>
@@ -426,6 +438,7 @@
         </div>
 
         <hr style="border:none;border-top:1px solid #eee;margin:28px 0">
+        ${staleBanner}
         <div class="form-section">
           <h2>Запуск пайплайна
             <span style="font-weight:400;font-size:12px;margin-left:10px;text-transform:none;letter-spacing:0">
@@ -842,13 +855,6 @@
       msg.className = "msg msg-ok";
       msg.textContent = `Запуск ${run_id.slice(0, 8)}… начат.`;
 
-      if (stale_machines_warning) {
-        const staleEl = document.createElement("div");
-        staleEl.className = "msg";
-        staleEl.style.cssText = "margin-top:6px;padding:8px 12px;background:#fffbe6;border:1px solid #ffe082;border-radius:4px;color:#7a5c00";
-        staleEl.textContent = "Список машин обновлялся более 12 часов назад. Рекомендуется запустить обнаружение перед следующим запуском.";
-        msg.after(staleEl);
-      }
 
       Object.keys(machineOutput).forEach(k => delete machineOutput[k]);
       Object.keys(machineStatus).forEach(k => delete machineStatus[k]);
