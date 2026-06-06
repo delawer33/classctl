@@ -67,7 +67,8 @@ def _read_arp_table(network_range: str) -> list[tuple[str, str]]:
         ip = m.group(1)
         mac = m.group(2).replace("-", ":")
         try:
-            if ipaddress.ip_address(ip) in net:
+            addr = ipaddress.ip_address(ip)
+            if addr in net and addr != net.broadcast_address and addr != net.network_address:
                 results.append((ip, mac))
         except ValueError:
             pass
