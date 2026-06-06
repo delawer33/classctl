@@ -14,7 +14,7 @@ LINUX
 
 2. Установите classctl:
 
-   pipx install git+https://github.com/delawer33/classctl@v0.1.1
+   pipx install git+https://github.com/delawer33/classctl
 
 3. Выдайте права на ARP-сканирование (один раз после установки):
 
@@ -50,7 +50,7 @@ WINDOWS
 
 3. Установите classctl:
 
-   pipx install git+https://github.com/delawer33/classctl@v0.1.1
+   pipx install git+https://github.com/delawer33/classctl
 
 4. Запустите (в обычном или администраторском терминале,
    в зависимости от настроек Npcap):
@@ -63,6 +63,6 @@ WINDOWS
 ОБНОВЛЕНИЕ
 ----------
 
-   pipx install git+https://github.com/delawer33/classctl@v0.2.0 --force
+   pipx install git+https://github.com/delawer33/classctl --force
 
    Linux: после обновления повторите шаг 3 (setcap).

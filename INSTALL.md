@@ -14,7 +14,7 @@ pipx ensurepath
 **2. Установите classctl:**
 
 ```bash
-pipx install git+https://github.com/delawer33/classctl@v0.1.1
+pipx install git+https://github.com/delawer33/classctl
 ```
 
 **3. Выдайте права на ARP-сканирование** (один раз после установки):
@@ -37,11 +37,7 @@ classctl
 
 ## Windows
 
-**1. Установите [Npcap](https://npcap.com/#download).**
-
-При установке отметьте:
-- «Install Npcap in WinPcap API-compatible Mode»
-- «Allow non-admin users to capture packets» (если нужно запускать без прав администратора; иначе запускайте classctl от имени администратора)
+**1. Установите [Npcap](https://npcap.com/#download)** (нужен только для Wake-on-LAN; обнаружение машин работает без него).
 
 **2. Установите pipx:**
 
@@ -55,7 +51,7 @@ pipx ensurepath
 **3. Установите classctl:**
 
 ```powershell
-pipx install git+https://github.com/delawer33/classctl@v0.1.1
+pipx install git+https://github.com/delawer33/classctl
 ```
 
 **4. Запустите** (в обычном или администраторском терминале, в зависимости от настроек Npcap):
@@ -71,6 +67,6 @@ classctl
 ## Обновление
 
 ```bash
-pipx install git+https://github.com/delawer33/classctl@v0.2.0 --force
+pipx install git+https://github.com/delawer33/classctl --force
 # Linux: после обновления повторите шаг 3 (setcap)
 ```
