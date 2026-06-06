@@ -19,21 +19,43 @@ def _client(tmp_path, monkeypatch, fake_scan):
     return TestClient(create_app(config=cm))
 
 
-def test_discover_merges_found_machines(tmp_path, monkeypatch):
+def test_discover_returns_machines_and_counts(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch,
                 lambda _: [("192.168.1.10", "aa:bb:cc:dd:ee:01")])
     r = c.post("/classrooms/Room A/discover")
     assert r.status_code == 200
-    machines = r.json()
-    assert len(machines) == 1
-    assert machines[0]["ip"] == "192.168.1.10"
+    body = r.json()
+    assert body["machines"][0]["ip"] == "192.168.1.10"
+    assert body["found_count"] == 1
+    assert body["new_count"] == 1
+    assert body["no_hosts_found"] is False
 
 
-def test_discover_returns_empty_list_when_no_hosts(tmp_path, monkeypatch):
+def test_discover_new_count_excludes_known_machines(tmp_path, monkeypatch):
+    """A machine already in the list counts towards found_count but not new_count."""
+    monkeypatch.setattr(
+        "classctl.core.discovery.get_lan_ip_mac_list",
+        lambda _: [("192.168.1.10", "aa:bb:cc:dd:ee:01")],
+    )
+    from classctl.core.config import ConfigManager
+    cm = ConfigManager(tmp_path / "config.json")
+    cm.add_classroom(ROOM)
+    cm.add_machine("Room A", {"ip": "192.168.1.10", "mac": "aa:bb:cc:dd:ee:01"})
+    client = TestClient(create_app(config=cm))
+    r = client.post("/classrooms/Room A/discover")
+    body = r.json()
+    assert body["found_count"] == 1
+    assert body["new_count"] == 0
+
+
+def test_discover_sets_no_hosts_found_when_scan_returns_empty(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch, lambda _: [])
     r = c.post("/classrooms/Room A/discover")
     assert r.status_code == 200
-    assert r.json() == []
+    body = r.json()
+    assert body["no_hosts_found"] is True
+    assert body["found_count"] == 0
+    assert body["machines"] == []
 
 
 def test_discover_unknown_classroom_returns_404(tmp_path, monkeypatch):

@@ -157,8 +157,13 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
             found = DiscoveryEngine().discover(room["subnet"])
         except Exception as exc:
             raise HTTPException(status_code=502, detail=str(exc))
-        config.merge_discovered(name, found)
-        return config.get_machines(name)
+        new_count = config.merge_discovered(name, found)
+        return {
+            "machines": config.get_machines(name),
+            "found_count": len(found),
+            "new_count": new_count,
+            "no_hosts_found": len(found) == 0,
+        }
 
     # --- Run routes ---
 

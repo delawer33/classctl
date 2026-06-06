@@ -73,7 +73,47 @@ def test_merge_retains_machines_not_in_discovery(cm):
     assert MACHINE_B["mac"] in macs
 
 
+# ── Cycle: add_machine / remove_machine write machines_updated_at (issue #32) ─
+
+def test_add_machine_writes_machines_updated_at(cm):
+    before = datetime.now(timezone.utc)
+    cm.add_machine("Room A", MACHINE_A)
+    room = cm.get_classroom("Room A")
+    assert "machines_updated_at" in room
+    ts = datetime.fromisoformat(room["machines_updated_at"])
+    assert ts >= before
+
+
+def test_remove_machine_writes_machines_updated_at(cm):
+    cm.add_machine("Room A", MACHINE_A)
+    before = datetime.now(timezone.utc)
+    cm.remove_machine("Room A", MACHINE_A["mac"])
+    room = cm.get_classroom("Room A")
+    assert "machines_updated_at" in room
+    ts = datetime.fromisoformat(room["machines_updated_at"])
+    assert ts >= before
+
+
 # ── Cycle: merge_discovered writes machines_updated_at (issue #26) ──────────
+
+def test_merge_returns_new_count(cm):
+    """merge_discovered returns the number of machines that were not previously known."""
+    count = cm.merge_discovered("Room A", [MACHINE_A, MACHINE_B])
+    assert count == 2
+
+
+def test_merge_returns_zero_for_known_machines(cm):
+    """Machines already in the list count as zero new."""
+    cm.add_machine("Room A", MACHINE_A)
+    count = cm.merge_discovered("Room A", [MACHINE_A])  # same MAC, possibly new IP
+    assert count == 0
+
+
+def test_merge_counts_only_genuinely_new(cm):
+    cm.add_machine("Room A", MACHINE_A)
+    count = cm.merge_discovered("Room A", [MACHINE_A, MACHINE_B])  # B is new
+    assert count == 1
+
 
 def test_merge_writes_machines_updated_at(cm):
     before = datetime.now(timezone.utc)

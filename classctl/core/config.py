@@ -65,6 +65,7 @@ class ConfigManager:
 
     def add_machine(self, classroom_name: str, machine: dict) -> None:
         self.get_machines(classroom_name).append(machine)
+        self._touch_updated_at(classroom_name)
         self._save()
 
     def remove_machine(self, classroom_name: str, mac: str) -> None:
@@ -72,28 +73,32 @@ class ConfigManager:
         for i, m in enumerate(machines):
             if m["mac"] == mac:
                 del machines[i]
+                self._touch_updated_at(classroom_name)
                 self._save()
                 return
         raise KeyError(mac)
 
-    def merge_discovered(self, classroom_name: str, discovered: list[dict]) -> None:
+    def merge_discovered(self, classroom_name: str, discovered: list[dict]) -> int:
         """Merge ARP scan results into the persisted machine list.
 
         Deduplication key is MAC address. If a known MAC is found in the scan
         its IP is updated (DHCP may have reassigned it). New MACs are appended.
         Machines absent from the scan are left untouched — they may just be offline.
+        Returns the count of machines that were not previously in the list.
         """
         machines = self.get_machines(classroom_name)
         existing = {m["mac"]: m for m in machines}
+        new_count = 0
         for found in discovered:
             mac = found["mac"]
             if mac in existing:
                 existing[mac]["ip"] = found["ip"]
             else:
                 machines.append(found)
-        room = self.get_classroom(classroom_name)
-        room["machines_updated_at"] = datetime.now(timezone.utc).isoformat()
+                new_count += 1
+        self._touch_updated_at(classroom_name)
         self._save()
+        return new_count
 
     def save_error_patterns(self, patterns: list[str]) -> None:
         self._data["error_patterns"] = patterns
@@ -109,6 +114,10 @@ class ConfigManager:
         raise KeyError(name)
 
     # --- Internal ---
+
+    def _touch_updated_at(self, classroom_name: str) -> None:
+        room = self.get_classroom(classroom_name)
+        room["machines_updated_at"] = datetime.now(timezone.utc).isoformat()
 
     def _save(self) -> None:
         self._path.write_text(json.dumps(self._data, indent=2))
