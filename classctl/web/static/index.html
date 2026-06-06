@@ -165,6 +165,7 @@
     .msg { font-size: 12px; margin-top: 8px; }
     .msg-ok { color: #27ae60; }
     .msg-err { color: #c0392b; }
+    .field-err { font-size: 11px; color: #c0392b; margin-top: 3px; min-height: 14px; }
 
     /* ── Run Monitor ───────────────────────────────────────── */
 
@@ -350,32 +351,38 @@
           <div class="field">
             <label>Название</label>
             <input type="text" id="f-name" value="${escHtml(room?.name ?? '')}" ${!isNew ? 'readonly style="background:#f8f8f8"' : ''}>
+            <div class="field-err" id="err-name"></div>
           </div>
           <div class="field">
             <label>Подсеть (CIDR)</label>
             <input type="text" id="f-subnet" value="${escHtml(room?.subnet ?? '')}" placeholder="192.168.10.0/24">
+            <div class="field-err" id="err-subnet"></div>
           </div>
           <div class="field">
             <label>Путь к SSH-ключу</label>
             <input type="text" id="f-key" value="${escHtml(room?.ssh_key_path ?? '')}" placeholder="/home/user/.ssh/id_rsa">
+            <div class="field-err" id="err-key"></div>
           </div>
           <div class="field">
             <label>Пользователь SSH</label>
-            <input type="text" id="f-username" value="${escHtml(room?.username ?? '')}" placeholder="student">
+            <input type="text" id="f-username" value="${escHtml(room?.username ?? '')}" placeholder="student (по умолчанию)">
           </div>
           <div class="field">
             <label>Каталог скриптов</label>
             <input type="text" id="f-dir" value="${escHtml(room?.script_directory ?? '/home/student/VBox_install')}">
+            <div class="field-err" id="err-dir"></div>
           </div>
           <div class="field">
             <label>Таймаут WoL, с <span style="color:#aaa;font-size:11px">(по умолчанию: 300)</span></label>
             <input type="text" id="f-wol-timeout" value="${escHtml(String(room?.wol_timeout ?? ''))}" placeholder="300" style="max-width:120px">
+            <div class="field-err" id="err-wol-timeout"></div>
           </div>
         </div>
 
         <div class="form-section">
           <h2>Маппинг шагов</h2>
           <div class="step-grid">${stepFields}</div>
+          <div class="field-err" id="err-steps" style="margin-top:6px"></div>
         </div>
 
         <div class="btn-row">
@@ -387,7 +394,16 @@
         <div class="msg" id="form-msg"></div>
 
         ${!isNew ? `
-        <hr style="border:none;border-top:1px solid #eee;margin:28px 0">
+        <div id="run-monitor"></div>
+
+        <details id="config-accordion" ${(activeRunId && activeRunRoom === room?.name) ? "" : "open"}
+                 ontoggle="const a=document.getElementById('accordion-arrow');if(a)a.textContent=this.open?'▼':'▶'">
+        <summary style="cursor:pointer;padding:10px 0 6px;font-size:12px;color:#888;user-select:none;list-style:none;outline:none">
+          <span id="accordion-arrow">${(activeRunId && activeRunRoom === room?.name) ? "▶" : "▼"}</span>
+          Конфигурация, машины и запуск
+        </summary>
+
+        <hr style="border:none;border-top:1px solid #eee;margin:20px 0 28px">
         <div class="form-section">
           <h2>Машины
             <span style="font-weight:400;font-size:12px;margin-left:10px;text-transform:none;letter-spacing:0">
@@ -399,7 +415,7 @@
           </h2>
           <div id="discover-msg" class="msg" style="margin-bottom:8px"></div>
           <div id="machine-list-wrap"></div>
-          <div id="add-machine-form" style="display:none;margin-top:12px;display:none">
+          <div id="add-machine-form" style="display:none;margin-top:12px">
             <div style="display:flex;gap:8px;max-width:420px;flex-wrap:wrap">
               <input type="text" id="new-ip" placeholder="IP-адрес" style="flex:1;min-width:130px">
               <input type="text" id="new-mac" placeholder="MAC-адрес" style="flex:1;min-width:150px">
@@ -425,11 +441,26 @@
             <span style="color:#aaa;font-size:11px">(снимите, если машины уже включены)</span>
           </label>
           <br>
+          <div id="run-confirmation" style="display:none;margin-bottom:12px"></div>
           <button class="btn btn-primary" onclick="startRun()">▶ Запустить</button>
           <div class="msg" id="run-start-msg"></div>
         </div>
 
-        <div id="run-monitor"></div>
+        <hr style="border:none;border-top:1px solid #eee;margin:28px 0">
+        <div class="form-section">
+          <h2>Выключение</h2>
+          <label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;cursor:pointer;font-size:13px;font-weight:400;color:#333">
+            <input type="checkbox" id="run-shutdown-after">
+            Выключить после завершения
+            <span style="color:#aaa;font-size:11px">(автоматически при успешном завершении)</span>
+          </label>
+          <br>
+          <button class="btn btn-secondary" onclick="shutdownMachines()">⏻ Выключить выбранные</button>
+          <div class="msg" id="shutdown-msg"></div>
+          <div id="shutdown-results"></div>
+        </div>
+
+        </details>
         ` : ""}
       `;
 
@@ -524,30 +555,51 @@
       if (btn) btn.disabled = true;
       if (msg) { msg.className = "msg"; msg.textContent = "Сканирование…"; }
 
-      // Snapshot MACs currently in the table before the scan
+      // Snapshot MACs and their checked state before re-rendering
       _knownMacsBeforeDiscover = new Set(
         [...document.querySelectorAll(".machine-cb")].map(cb => cb.dataset.mac)
+      );
+      _uncheckedMacsBeforeDiscover = new Set(
+        [...document.querySelectorAll(".machine-cb")]
+          .filter(cb => !cb.checked)
+          .map(cb => cb.dataset.mac)
       );
 
       const r = await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/discover`);
 
       if (r && r.ok) {
-        const machines = await r.json();
+        const body = await r.json();
+        const machines = body.machines ?? body;
         renderMachineList(activeRoom, machines, _knownMacsBeforeDiscover);
+        // Restore unchecked state for machines that were already known before scan.
+        // Newly discovered machines (not in _knownMacsBeforeDiscover) stay checked.
+        _uncheckedMacsBeforeDiscover.forEach(mac => {
+          if (_knownMacsBeforeDiscover.has(mac)) {
+            const cb = document.querySelector(`.machine-cb[data-mac="${CSS.escape(mac)}"]`);
+            if (cb) cb.checked = false;
+          }
+        });
         if (msg) {
-          msg.className = "msg msg-ok";
-          msg.textContent = machines.length > 0
-            ? `Найдено машин: ${machines.length}.`
-            : "Хосты не найдены. Список машин не изменён.";
+          if (body.no_hosts_found) {
+            msg.className = "msg msg-err";
+            msg.textContent = "Хосты не найдены. Машины выключены или ноутбук подключён не к той подсети.";
+          } else {
+            msg.className = "msg msg-ok";
+            const newInfo = body.new_count > 0 ? `, из них ${body.new_count} новых` : "";
+            msg.textContent = `Найдено машин: ${body.found_count}${newInfo}.`;
+          }
         }
       } else {
         const err = r ? await r.json() : { detail: "Ошибка сети" };
-        if (msg) { msg.className = "msg msg-err"; msg.textContent = err.detail ?? "Ошибка сканирования."; }
+        if (msg) { msg.className = "msg msg-err"; msg.textContent = err.detail ?? "Ошибка сканирования — проверьте подключение к подсети класса."; }
       }
       if (btn) btn.disabled = false;
     }
 
     async function saveRoom(isNew) {
+      // Clear previous field errors
+      document.querySelectorAll(".field-err").forEach(el => el.textContent = "");
+
       const wolRaw = document.getElementById("f-wol-timeout").value.trim();
       const payload = {
         name: document.getElementById("f-name").value.trim(),
@@ -561,6 +613,23 @@
         machines: [],
       };
       if (wolRaw) payload.wol_timeout = parseInt(wolRaw, 10);
+
+      // Client-side validation
+      let hasErrors = false;
+      function setFieldErr(id, text) {
+        const el = document.getElementById(`err-${id}`);
+        if (el) { el.textContent = text; hasErrors = true; }
+      }
+      if (!payload.name) setFieldErr("name", "Обязательное поле");
+      if (!payload.subnet) setFieldErr("subnet", "Обязательное поле");
+      if (!payload.ssh_key_path) setFieldErr("key", "Обязательное поле");
+      if (!payload.script_directory) setFieldErr("dir", "Обязательное поле");
+      if (wolRaw && (!/^\d+$/.test(wolRaw) || parseInt(wolRaw, 10) <= 0)) {
+        setFieldErr("wol-timeout", "Введите целое число больше 0");
+      }
+      const missingSteps = [1, 2, 3, 4].filter(n => !payload.step_mapping[n]);
+      if (missingSteps.length > 0) setFieldErr("steps", `Укажите файлы для шагов: ${missingSteps.join(", ")}`);
+      if (hasErrors) return;
 
       const method = isNew ? "POST" : "PUT";
       const path = isNew ? "/classrooms" : `/classrooms/${encodeURIComponent(activeRoom)}`;
@@ -655,6 +724,14 @@
     const machineOutput = {};
     // ip → last status
     const machineStatus = {};
+    // ip → timestamp of last machine_output event (for silent-script heartbeat)
+    const lastOutputAt = {};
+    // IPs that were part of the most recently started run (for shutdown-after-completion)
+    let activeRunMachineIps = [];
+    // MACs that were unchecked before the last Discovery refresh
+    let _uncheckedMacsBeforeDiscover = new Set();
+    // Run config held while the confirmation dialog is shown
+    let _pendingRunConfig = null;
     // step elapsed timer state
     let stepStartedAt = null;
     let stepElapsedTimer = null;
@@ -691,7 +768,6 @@
       const msg = document.getElementById("run-start-msg");
       const startStep = parseInt(document.getElementById("run-start")?.value ?? "1");
 
-      // Collect checked machine IPs
       const checked = [...document.querySelectorAll(".machine-cb:checked")]
         .map(cb => {
           const row = cb.closest("tr");
@@ -704,10 +780,45 @@
         return;
       }
 
-      // Disconnect any previous WebSocket
+      const wakeOnLan = document.getElementById("run-wol")?.checked ?? true;
+      _pendingRunConfig = { startStep, checked, wakeOnLan };
+      showRunConfirmation(startStep, checked);
+    }
+
+    function showRunConfirmation(startStep, machines) {
+      const confirmEl = document.getElementById("run-confirmation");
+      if (!confirmEl) return;
+      const stepEntry = STEPS.find(([n]) => n === startStep);
+      const stepLabel = stepEntry ? stepEntry[1] : `Шаг ${startStep}`;
+      confirmEl.style.display = "block";
+      confirmEl.innerHTML = `
+        <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:14px 18px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:8px">Подтвердите запуск</div>
+          <div style="font-size:13px;margin-bottom:4px">Начальный шаг: <b>Шаг ${startStep} — ${escHtml(stepLabel)}</b></div>
+          <div style="font-size:13px;margin-bottom:10px;color:#555">Машин: <b>${machines.length}</b> — <span style="font-family:monospace;font-size:12px">${machines.map(escHtml).join(", ")}</span></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="confirmAndStartRun()">▶ Подтвердить запуск</button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelRunConfirmation()">Отмена</button>
+          </div>
+        </div>`;
+    }
+
+    function cancelRunConfirmation() {
+      _pendingRunConfig = null;
+      const confirmEl = document.getElementById("run-confirmation");
+      if (confirmEl) confirmEl.style.display = "none";
+    }
+
+    async function confirmAndStartRun() {
+      if (!_pendingRunConfig) return;
+      const { startStep, checked, wakeOnLan } = _pendingRunConfig;
+      _pendingRunConfig = null;
+      cancelRunConfirmation();
+
+      const msg = document.getElementById("run-start-msg");
+
       if (activeRunWs) { activeRunWs.close(); activeRunWs = null; }
 
-      const wakeOnLan = document.getElementById("run-wol")?.checked ?? true;
       const r = await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/run`, {
         start_step: startStep,
         end_step: END_STEP,
@@ -726,6 +837,7 @@
       const { run_id, stale_machines_warning } = body;
       activeRunId = run_id;
       activeRunRoom = activeRoom;
+      activeRunMachineIps = checked;
       localStorage.setItem("classctl_run_id", run_id);
       msg.className = "msg msg-ok";
       msg.textContent = `Запуск ${run_id.slice(0, 8)}… начат.`;
@@ -738,14 +850,74 @@
         msg.after(staleEl);
       }
 
-      // Reset local state
       Object.keys(machineOutput).forEach(k => delete machineOutput[k]);
       Object.keys(machineStatus).forEach(k => delete machineStatus[k]);
+      Object.keys(lastOutputAt).forEach(k => delete lastOutputAt[k]);
 
       renderRunMonitor({ phase: "RUNNING", current_step: startStep, start_step: startStep,
                          end_step: END_STEP, machines: Object.fromEntries(checked.map(ip => [ip, "PENDING"])),
                          flagged_lines: {} });
+
+      // Collapse config accordion so the run monitor is visible without scrolling
+      const accordion = document.getElementById("config-accordion");
+      if (accordion) accordion.removeAttribute("open");
+      const arrow = document.getElementById("accordion-arrow");
+      if (arrow) arrow.textContent = "▶";
+
       connectRunWs(run_id);
+    }
+
+    async function shutdownMachines() {
+      const msg = document.getElementById("shutdown-msg");
+      const checked = [...document.querySelectorAll(".machine-cb:checked")]
+        .map(cb => {
+          const row = cb.closest("tr");
+          return row?.querySelector("td:nth-child(2)")?.textContent?.trim();
+        }).filter(Boolean);
+
+      if (checked.length === 0) {
+        msg.className = "msg msg-err";
+        msg.textContent = "Выберите хотя бы одну машину.";
+        return;
+      }
+
+      if (!confirm(`Выключить ${checked.length} машин?`)) return;
+
+      msg.className = "msg";
+      msg.textContent = "Выключение…";
+      const resultsEl = document.getElementById("shutdown-results");
+      if (resultsEl) resultsEl.innerHTML = "";
+
+      const r = await api("POST", `/classrooms/${encodeURIComponent(activeRoom)}/shutdown`, {
+        machine_ips: checked,
+      });
+
+      if (!r || !r.ok) {
+        const err = r ? await r.json() : { detail: "Ошибка сети" };
+        msg.className = "msg msg-err";
+        msg.textContent = err.detail ?? "Ошибка выключения.";
+        return;
+      }
+
+      const data = await r.json();
+      const okCount = data.results.filter(x => x.ok).length;
+      msg.className = "msg msg-ok";
+      msg.textContent = `Команда отправлена: ${okCount} из ${data.results.length} машин.`;
+
+      if (resultsEl) {
+        const rows = data.results.map(res =>
+          `<div style="font-size:12px;margin-top:3px">
+            <span style="font-family:monospace">${escHtml(res.ip)}</span>
+            ${res.ok ? '<span style="color:#27ae60"> ✓</span>' : `<span style="color:#c0392b"> ✗ ${escHtml(res.error ?? "")}</span>`}
+          </div>`
+        ).join("");
+        const skipped = (data.skipped ?? []).map(s =>
+          `<div style="font-size:12px;margin-top:3px;color:#aaa">
+            <span style="font-family:monospace">${escHtml(s.ip)}</span> — пропущено (активный запуск)
+          </div>`
+        ).join("");
+        resultsEl.innerHTML = rows + skipped;
+      }
     }
 
     function connectRunWs(runId, retryDelay = 1000) {
@@ -808,11 +980,22 @@
       }
       if (event.type === "machine_output") {
         machineOutput[event.ip] = (machineOutput[event.ip] ?? "") + event.line;
-        const pre = document.getElementById(`out-${event.ip.replace(/\./g, "-")}`);
+        lastOutputAt[event.ip] = Date.now();
+        const key = event.ip.replace(/\./g, "-");
+        const pre = document.getElementById(`out-${key}`);
         if (pre) { pre.textContent = machineOutput[event.ip]; pre.scrollTop = pre.scrollHeight; }
+        // Update last-line cell and reset any "no output" heartbeat text
+        const lastEl = document.getElementById(`last-${key}`);
+        if (lastEl && machineStatus[event.ip] === "RUNNING") {
+          const lines = machineOutput[event.ip].trim().split("\n");
+          lastEl.textContent = lines[lines.length - 1] ?? "";
+        }
         return;
       }
       if (event.type === "machine_update") {
+        // Initialise lastOutputAt when a machine starts running so the heartbeat
+        // doesn't immediately show "no output" for machines that haven't produced any yet.
+        if (event.status === "RUNNING") lastOutputAt[event.ip] = Date.now();
         machineStatus[event.ip] = event.status;
         updateMachineBadge(event.ip, event.status);
         return;
@@ -827,11 +1010,31 @@
         return;
       }
       if (event.type === "run_finished") {
+        const roomName = activeRunRoom;
+        const runMachines = [...activeRunMachineIps];
         hidePauseBanner();
         updateRunHeader(event.phase);
         stopStepTimer();
         localStorage.removeItem("classctl_run_id");
         activeRunRoom = null;
+        // Auto-shutdown when checkbox is checked and run completed cleanly
+        if (event.phase === "COMPLETED" && roomName && runMachines.length > 0) {
+          const shutdownAfter = document.getElementById("run-shutdown-after");
+          if (shutdownAfter?.checked) {
+            setTimeout(async () => {
+              const r = await api("POST", `/classrooms/${encodeURIComponent(roomName)}/shutdown`, {
+                machine_ips: runMachines,
+              });
+              const shutdownMsg = document.getElementById("shutdown-msg");
+              if (shutdownMsg && r?.ok) {
+                const data = await r.json();
+                const ok = data.results.filter(x => x.ok).length;
+                shutdownMsg.className = "msg msg-ok";
+                shutdownMsg.textContent = `Автовыключение: ${ok} из ${runMachines.length} машин выключено.`;
+              }
+            }, 1000);
+          }
+        }
         return;
       }
     }
@@ -969,6 +1172,7 @@
       if (flagged.length)      summary += `<br><small>ОШИБКИ (${flagged.length}): ${flagged.join(", ")}${commonError ? ` — «${escHtml(commonError.slice(0, 80))}»` : ""}</small>`;
       if (timedOut.length)     summary += `<br><small>ТАЙМАУТ (${timedOut.length}): ${timedOut.join(", ")}</small>`;
       if (disconnected.length) summary += `<br><small>РАЗРЫВ (${disconnected.length}): ${disconnected.join(", ")}</small>`;
+      if (disconnected.length) summary += `<br><small style="color:#c0392b;font-weight:500">⚠ Соединение SSH было прервано — скрипт может всё ещё выполняться на этих машинах. Повтор запустит новый экземпляр.</small>`;
 
       banner.innerHTML = `
         <span style="flex:1;min-width:150px">${summary}</span>
@@ -1102,6 +1306,23 @@
         msg.textContent = `Переподключено к запуску ${savedId.slice(0, 8)}…`;
       }
     }
+
+    // Silent-script heartbeat: show elapsed no-output time for RUNNING machines
+    setInterval(() => {
+      for (const [ip, status] of Object.entries(machineStatus)) {
+        if (status !== "RUNNING") continue;
+        const key = ip.replace(/\./g, "-");
+        const lastEl = document.getElementById(`last-${key}`);
+        if (!lastEl) continue;
+        const lastTime = lastOutputAt[ip];
+        if (!lastTime) continue;
+        const silentSecs = Math.floor((Date.now() - lastTime) / 1000);
+        if (silentSecs >= 120) {
+          const silentMins = Math.floor(silentSecs / 60);
+          lastEl.innerHTML = `<span style="color:#bbb;font-style:italic">(нет вывода — ${silentMins} мин)</span>`;
+        }
+      }
+    }, 10000);
 
     loadClassrooms().then(tryRestoreRun);
   </script>
