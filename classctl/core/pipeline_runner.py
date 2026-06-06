@@ -2,7 +2,7 @@ import asyncio
 from typing import Callable, Coroutine, Any
 
 OUTPUT_CAP_BYTES = 512 * 1024  # max bytes stored per machine in RunState.output
-OUTPUT_CAP_SENTINEL = "[вывод усечён — превышен лимит 512 КБ]\n"
+OUTPUT_CAP_SENTINEL = "[начало вывода усечено — показаны последние 512 КБ]\n"
 
 from classctl.core.config_validator import validate as validate_classroom
 from classctl.core.error_detector import detect
@@ -167,9 +167,10 @@ class PipelineRunner:
                 self._wol_sender(mac)
         self._emit({"type": "wol_sent", "ips": ips})
 
-        # Wait for SSH to become available, emitting periodic progress events
-        port = self._machines.get(ips[0], {}).get("port", 22) if ips else 22
-        poll_task = asyncio.create_task(self._ssh_poller.wait(ips, port=port))
+        # Wait for SSH to become available, emitting periodic progress events.
+        # Build a per-machine port map so machines on non-standard ports are polled correctly.
+        port_map = {ip: self._machines.get(ip, {}).get("port", 22) for ip in ips}
+        poll_task = asyncio.create_task(self._ssh_poller.wait(ips, port=port_map))
         start = asyncio.get_event_loop().time()
         while not poll_task.done():
             await asyncio.sleep(self._wol_poll_emit_interval)
@@ -220,7 +221,7 @@ class PipelineRunner:
             flagged = detect(result.output, self._error_patterns)
             stored = result.output
             if len(stored.encode()) > OUTPUT_CAP_BYTES:
-                stored = stored.encode()[:OUTPUT_CAP_BYTES].decode(errors="replace") + OUTPUT_CAP_SENTINEL
+                stored = OUTPUT_CAP_SENTINEL + stored.encode()[-OUTPUT_CAP_BYTES:].decode(errors="replace")
             self._rsm.machine_completed(ip, output=stored, flagged_lines=flagged)
 
         self._emit({

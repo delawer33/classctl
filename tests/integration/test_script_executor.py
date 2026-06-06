@@ -81,6 +81,28 @@ async def test_timeout_returns_timed_out_status(ssh_container):
 
 
 @pytest.mark.integration
+async def test_stderr_interleaved_before_stdout(ssh_container):
+    """stderr lines emitted before stdout lines must appear before them in captured output.
+
+    The script writes to stderr first, then to stdout ("fake_script: done").
+    With sequential stdout-then-stderr reading the order would be reversed.
+    The correct implementation reads both streams concurrently.
+    """
+    executor = ScriptExecutor(
+        host=ssh_container.host,
+        port=ssh_container.port,
+        username=ssh_container.username,
+        key_path=str(ssh_container.key_path),
+    )
+    result = await executor.run(f"{SCRIPT} --stderr-pattern STDERR_MARKER")
+
+    assert "STDERR_MARKER" in result.output
+    assert "fake_script: done" in result.output
+    # stderr was emitted before "fake_script: done" on the server — order must be preserved
+    assert result.output.index("STDERR_MARKER") < result.output.index("fake_script: done")
+
+
+@pytest.mark.integration
 async def test_ssh_disconnect_returns_disconnected_status(ssh_container):
     """Kill the container mid-run to simulate a dropped SSH connection."""
     import docker

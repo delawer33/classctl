@@ -60,15 +60,18 @@ class ScriptExecutor:
                 try:
                     async with asyncio.timeout(self._timeout):
                         async with conn.create_process(command) as process:
-                            # Stream stdout and stderr line by line as they arrive
-                            async for line in process.stdout:
-                                chunks.append(line)
-                                if self._on_output:
-                                    self._on_output(line)
-                            async for line in process.stderr:
-                                chunks.append(line)
-                                if self._on_output:
-                                    self._on_output(line)
+                            async def _read(stream) -> None:
+                                async for line in stream:
+                                    chunks.append(line)
+                                    if self._on_output:
+                                        self._on_output(line)
+
+                            # Read stdout and stderr concurrently so lines are
+                            # captured in the order they arrive, not stdout-then-stderr.
+                            await asyncio.gather(
+                                _read(process.stdout),
+                                _read(process.stderr),
+                            )
                 except asyncio.TimeoutError:
                     return ExecutionResult(
                         status=ExecutionStatus.TIMED_OUT,

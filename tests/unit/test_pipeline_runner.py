@@ -269,10 +269,10 @@ async def test_wol_polling_event_emitted_while_waiting(tmp_path):
     assert all("elapsed_seconds" in e for e in polling_events)
 
 
-# --- Output size cap (issue #24) ---
+# --- Output size cap (issue #29) ---
 
-async def test_output_cap_limits_stored_snapshot(tmp_path):
-    """Stored output is capped; the sentinel line appears when cap is exceeded."""
+async def test_output_cap_sentinel_is_prepended(tmp_path):
+    """When cap is exceeded the sentinel appears at the START of stored output."""
     from classctl.core.pipeline_runner import OUTPUT_CAP_BYTES
     key = tmp_path / "key"; key.write_text("x")
     big_chunk = "x" * (OUTPUT_CAP_BYTES + 1)
@@ -285,7 +285,31 @@ async def test_output_cap_limits_stored_snapshot(tmp_path):
 
     stored = runner.state.output.get("192.168.1.10", "")
     assert len(stored) <= OUTPUT_CAP_BYTES + 200   # cap + sentinel headroom
-    assert "[вывод усечён" in stored
+    # sentinel must be at the beginning, not the end
+    assert stored.startswith("[начало вывода усечено")
+
+
+async def test_output_cap_keeps_tail_not_head(tmp_path):
+    """When output exceeds the cap the LAST bytes are kept, not the first."""
+    from classctl.core.pipeline_runner import OUTPUT_CAP_BYTES
+    key = tmp_path / "key"; key.write_text("x")
+    # Build output where head and tail are clearly distinguishable
+    head = "HEAD-CONTENT\n" * 100          # a few KB at the start
+    padding = "x\n" * (OUTPUT_CAP_BYTES)   # enough to push head past the cap window
+    tail = "TAIL-CONTENT\n"                # distinctive tail marker
+    big_output = head + padding + tail
+    assert len(big_output.encode()) > OUTPUT_CAP_BYTES
+
+    recorder = ScriptRecorder({
+        ("192.168.1.10", 0): ExecutionResult(ExecutionStatus.COMPLETED, big_output),
+    })
+    rsm = RunStateMachine(start_step=1, end_step=1, target_ips=["192.168.1.10"])
+    runner = _runner(rsm, _classroom(str(key)), recorder)
+    await runner.run()
+
+    stored = runner.state.output.get("192.168.1.10", "")
+    assert "TAIL-CONTENT" in stored      # tail is preserved
+    assert "HEAD-CONTENT" not in stored  # head was dropped
 
 
 async def test_output_under_cap_stored_in_full(tmp_path):
@@ -301,7 +325,7 @@ async def test_output_under_cap_stored_in_full(tmp_path):
 
     stored = runner.state.output.get("192.168.1.10", "")
     assert stored == small_chunk
-    assert "[вывод усечён" not in stored
+    assert "[начало вывода усечено" not in stored
 
 
 # --- Run completes cleanly ---

@@ -12,12 +12,14 @@
 SLEEP=0
 EXIT_CODE=0
 OUTPUT_PATTERN=""
+STDERR_PATTERN=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --sleep)         SLEEP="$2";          shift 2 ;;
-    --exit-code)     EXIT_CODE="$2";      shift 2 ;;
+    --sleep)          SLEEP="$2";          shift 2 ;;
+    --exit-code)      EXIT_CODE="$2";      shift 2 ;;
     --output-pattern) OUTPUT_PATTERN="$2"; shift 2 ;;
+    --stderr-pattern) STDERR_PATTERN="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -26,6 +28,10 @@ echo "fake_script: starting"
 
 if [ -n "$OUTPUT_PATTERN" ]; then
   echo "fake_script: $OUTPUT_PATTERN"
+fi
+
+if [ -n "$STDERR_PATTERN" ]; then
+  echo "fake_script: $STDERR_PATTERN" >&2
 fi
 
 sleep "$SLEEP"

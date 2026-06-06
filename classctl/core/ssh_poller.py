@@ -15,11 +15,18 @@ class SSHPoller:
     poll_interval: float = 2.0   # seconds between retries
 
     async def wait(
-        self, ips: list[str], port: int = 22
+        self, ips: list[str], port: int | dict[str, int] = 22
     ) -> tuple[set[str], set[str]]:
-        """Poll all IPs concurrently. Returns (reachable, timed_out)."""
+        """Poll all IPs concurrently. Returns (reachable, timed_out).
+
+        port may be a single int (same port for all IPs) or a dict mapping
+        each IP to its own SSH port.
+        """
+        def _port(ip: str) -> int:
+            return port[ip] if isinstance(port, dict) else port
+
         results = await asyncio.gather(
-            *[self._poll_one(ip, port) for ip in ips]
+            *[self._poll_one(ip, _port(ip)) for ip in ips]
         )
         reachable = {ip for ip, ok in zip(ips, results) if ok}
         timed_out = {ip for ip, ok in zip(ips, results) if not ok}
