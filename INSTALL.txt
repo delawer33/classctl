@@ -26,20 +26,15 @@ LINUX
 
    Откройте браузер: http://127.0.0.1:8000
 
-ВАЖНО: при обновлении Python (apt upgrade) или classctl шаг 3 нужно повторить —
-обновление пересоздаёт виртуальное окружение и сбрасывает права.
+ВАЖНО: при обновлении Python (apt upgrade) или classctl (pipx install ... --force)
+шаг 3 нужно повторить — обновление пересоздаёт виртуальное окружение и сбрасывает права.
 
 
 WINDOWS
 -------
 
 1. Установите Npcap: https://npcap.com/#download
-
-   При установке отметьте:
-   - "Install Npcap in WinPcap API-compatible Mode"
-   - "Allow non-admin users to capture packets"
-     (если нужно запускать без прав администратора;
-      иначе запускайте classctl от имени администратора)
+   (нужен только для Wake-on-LAN; обнаружение машин работает без него)
 
 2. Установите pipx:
 
@@ -52,8 +47,7 @@ WINDOWS
 
    pipx install git+https://github.com/delawer33/classctl
 
-4. Запустите (в обычном или администраторском терминале,
-   в зависимости от настроек Npcap):
+4. Запустите:
 
    classctl
 
