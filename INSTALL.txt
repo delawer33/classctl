@@ -1,0 +1,68 @@
+УСТАНОВКА CLASSCTL
+==================
+
+
+LINUX
+-----
+
+1. Установите pipx (если ещё не установлен):
+
+   sudo apt install pipx
+   pipx ensurepath
+
+   После этого откройте новый терминал (или выполните: source ~/.bashrc).
+
+2. Установите classctl:
+
+   pipx install git+https://github.com/delawer33/classctl@v0.1.0
+
+3. Выдайте права на ARP-сканирование (один раз после установки):
+
+   sudo setcap cap_net_raw+ep "$(find ~/.local/share/pipx/venvs/classctl -name python3 -type f | head -1)"
+
+4. Запустите:
+
+   classctl
+
+   Откройте браузер: http://127.0.0.1:8000
+
+ВАЖНО: при обновлении Python (apt upgrade) или classctl шаг 3 нужно повторить —
+обновление пересоздаёт виртуальное окружение и сбрасывает права.
+
+
+WINDOWS
+-------
+
+1. Установите Npcap: https://npcap.com/#download
+
+   При установке отметьте:
+   - "Install Npcap in WinPcap API-compatible Mode"
+   - "Allow non-admin users to capture packets"
+     (если нужно запускать без прав администратора;
+      иначе запускайте classctl от имени администратора)
+
+2. Установите pipx:
+
+   pip install pipx
+   pipx ensurepath
+
+   Перезапустите терминал.
+
+3. Установите classctl:
+
+   pipx install git+https://github.com/delawer33/classctl@v0.1.0
+
+4. Запустите (в обычном или администраторском терминале,
+   в зависимости от настроек Npcap):
+
+   classctl
+
+   Откройте браузер: http://127.0.0.1:8000
+
+
+ОБНОВЛЕНИЕ
+----------
+
+   pipx install git+https://github.com/delawer33/classctl@v0.2.0 --force
+
+   Linux: после обновления повторите шаг 3 (setcap).
