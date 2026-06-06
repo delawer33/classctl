@@ -14,7 +14,7 @@ pipx ensurepath
 **2. Установите classctl:**
 
 ```bash
-pipx install git+https://github.com/delawer33/classctl@v0.1.0
+pipx install git+https://github.com/delawer33/classctl@v0.1.1
 ```
 
 **3. Выдайте права на ARP-сканирование** (один раз после установки):
@@ -55,7 +55,7 @@ pipx ensurepath
 **3. Установите classctl:**
 
 ```powershell
-pipx install git+https://github.com/delawer33/classctl@v0.1.0
+pipx install git+https://github.com/delawer33/classctl@v0.1.1
 ```
 
 **4. Запустите** (в обычном или администраторском терминале, в зависимости от настроек Npcap):
