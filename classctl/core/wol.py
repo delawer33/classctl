@@ -2,10 +2,10 @@ import wakeonlan
 
 
 def send_wol(mac: str) -> None:
-    """Send a Wake-on-LAN magic packet to the given MAC address.
+    """Отправляет магический WoL-пакет на MAC-адрес mac.
 
-    This is a thin wrapper so it can be stubbed in unit tests without
-    sending real packets. The actual packet logic lives in the wakeonlan
-    library and is not tested here.
+    Тонкая обёртка над библиотекой wakeonlan, позволяющая подменять функцию
+    в тестах без отправки реальных пакетов. Логика формирования пакета
+    находится в библиотеке и здесь не тестируется.
     """
     wakeonlan.send_magic_packet(mac)

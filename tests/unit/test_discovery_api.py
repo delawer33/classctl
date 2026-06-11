@@ -13,6 +13,7 @@ ROOM = {
 
 
 def _client(tmp_path, monkeypatch, fake_scan):
+    """Создаёт TestClient с подменённым сканером и аудиторией Room A."""
     monkeypatch.setattr("classctl.core.discovery.get_lan_ip_mac_list", fake_scan)
     cm = ConfigManager(tmp_path / "config.json")
     cm.add_classroom(ROOM)
@@ -20,6 +21,7 @@ def _client(tmp_path, monkeypatch, fake_scan):
 
 
 def test_discover_returns_machines_and_counts(tmp_path, monkeypatch):
+    """Проверяет, что POST /classrooms/{name}/discover возвращает машины и корректные счётчики."""
     c = _client(tmp_path, monkeypatch,
                 lambda _: [("192.168.1.10", "aa:bb:cc:dd:ee:01")])
     r = c.post("/classrooms/Room A/discover")
@@ -32,7 +34,7 @@ def test_discover_returns_machines_and_counts(tmp_path, monkeypatch):
 
 
 def test_discover_new_count_excludes_known_machines(tmp_path, monkeypatch):
-    """A machine already in the list counts towards found_count but not new_count."""
+    """Проверяет, что уже известная машина учитывается в found_count, но не в new_count."""
     monkeypatch.setattr(
         "classctl.core.discovery.get_lan_ip_mac_list",
         lambda _: [("192.168.1.10", "aa:bb:cc:dd:ee:01")],
@@ -49,6 +51,7 @@ def test_discover_new_count_excludes_known_machines(tmp_path, monkeypatch):
 
 
 def test_discover_sets_no_hosts_found_when_scan_returns_empty(tmp_path, monkeypatch):
+    """Проверяет, что no_hosts_found равен True если сканирование не нашло хостов."""
     c = _client(tmp_path, monkeypatch, lambda _: [])
     r = c.post("/classrooms/Room A/discover")
     assert r.status_code == 200
@@ -59,12 +62,14 @@ def test_discover_sets_no_hosts_found_when_scan_returns_empty(tmp_path, monkeypa
 
 
 def test_discover_unknown_classroom_returns_404(tmp_path, monkeypatch):
+    """Проверяет, что обнаружение машин для несуществующей аудитории возвращает 404."""
     c = _client(tmp_path, monkeypatch, lambda _: [])
     r = c.post("/classrooms/Ghost/discover")
     assert r.status_code == 404
 
 
 def test_discover_scan_error_returns_502(tmp_path, monkeypatch):
+    """Проверяет, что ошибка сканирования возвращает 502 с сообщением об ошибке."""
     def bad_scan(_): raise OSError("network unreachable")
     c = _client(tmp_path, monkeypatch, bad_scan)
     r = c.post("/classrooms/Room A/discover")

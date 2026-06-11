@@ -1,7 +1,7 @@
-"""Unit tests for run lifecycle API routes.
+"""Юнит-тесты для REST-маршрутов жизненного цикла прогона.
 
-WebSocket streaming is integration-level; these tests cover the REST surface:
-start run, get state, and deliver decisions.
+WebSocket-стриминг относится к интеграционному уровню; здесь тестируется REST-поверхность:
+запуск прогона, получение состояния и доставка решений.
 """
 
 import asyncio
@@ -13,6 +13,7 @@ from classctl.web.app import create_app
 
 
 def _app(tmp_path):
+    """Создаёт приложение с реальным SSH-ключом для тестов, требующих валидной конфигурации."""
     key = tmp_path / "key"; key.write_text("x")
     room = {**ROOM, "ssh_key_path": str(key)}
     cm = ConfigManager(tmp_path / "config.json")
@@ -35,6 +36,7 @@ ROOM = {
 
 
 def _client(tmp_path):
+    """Создаёт TestClient с реальным SSH-ключом и аудиторией Lab 1."""
     key = tmp_path / "key"
     key.write_text("x")
     room = {**ROOM, "ssh_key_path": str(key)}
@@ -46,6 +48,7 @@ def _client(tmp_path):
 # --- POST /classrooms/{name}/run — ConfigValidator (issue #17) ---
 
 def test_start_run_returns_400_when_ssh_key_missing(tmp_path):
+    """Проверяет, что отсутствие SSH-ключа при старте прогона возвращает 400 с путём к файлу."""
     cm = ConfigManager(tmp_path / "config.json")
     room = {**ROOM, "ssh_key_path": str(tmp_path / "no_such_key")}
     cm.add_classroom(room)
@@ -56,6 +59,7 @@ def test_start_run_returns_400_when_ssh_key_missing(tmp_path):
 
 
 def test_start_run_returns_400_when_step_missing_from_mapping(tmp_path):
+    """Проверяет, что отсутствие шага в маппинге возвращает 400 с номером шага."""
     key = tmp_path / "key"; key.write_text("x")
     cm = ConfigManager(tmp_path / "config.json")
     room = {**ROOM, "ssh_key_path": str(key), "step_mapping": {"1": "s1.sh"}}
@@ -66,9 +70,10 @@ def test_start_run_returns_400_when_step_missing_from_mapping(tmp_path):
     assert "2" in r.json()["detail"]
 
 
-# --- POST /classrooms/{name}/run — stale Machine List warning (issue #26) ---
+# --- POST /classrooms/{name}/run — предупреждение об устаревшем списке машин (issue #26) ---
 
 def test_start_run_warns_when_machines_updated_at_absent(tmp_path):
+    """Проверяет, что отсутствие machines_updated_at вызывает предупреждение об устаревших данных."""
     c = _client(tmp_path)
     r = c.post("/classrooms/Lab 1/run", json={"start_step": 1, "end_step": 4})
     assert r.status_code == 202
@@ -76,6 +81,7 @@ def test_start_run_warns_when_machines_updated_at_absent(tmp_path):
 
 
 def test_start_run_warns_when_machines_updated_at_is_old(tmp_path):
+    """Проверяет, что устаревший machines_updated_at (13 часов назад) вызывает предупреждение."""
     from datetime import datetime, timezone, timedelta
     key = tmp_path / "key"; key.write_text("x")
     cm = ConfigManager(tmp_path / "config.json")
@@ -89,6 +95,7 @@ def test_start_run_warns_when_machines_updated_at_is_old(tmp_path):
 
 
 def test_start_run_no_warning_when_machines_updated_at_is_fresh(tmp_path):
+    """Проверяет, что свежий machines_updated_at (1 час назад) не вызывает предупреждения."""
     from datetime import datetime, timezone, timedelta
     key = tmp_path / "key"; key.write_text("x")
     cm = ConfigManager(tmp_path / "config.json")
@@ -101,9 +108,10 @@ def test_start_run_no_warning_when_machines_updated_at_is_fresh(tmp_path):
     assert r.json().get("stale_machines_warning") is False
 
 
-# --- POST /classrooms/{name}/run — RunGuard (issue #18) ---
+# --- POST /classrooms/{name}/run — защита от двойного запуска (issue #18) ---
 
 def test_run_guard_returns_409_when_run_active(tmp_path):
+    """Проверяет, что попытка запустить второй прогон при активном возвращает 409."""
     app = _app(tmp_path)
     app.state.active_run_id = "existing-run-00000000"
     c = TestClient(app)
@@ -113,23 +121,22 @@ def test_run_guard_returns_409_when_run_active(tmp_path):
 
 
 def test_run_guard_clears_after_run_finishes(tmp_path):
-    # With no active run, start_run should succeed and set active_run_id;
-    # after the task finishes and calls _clear_active, active_run_id goes back to None.
+    """Проверяет, что после завершения прогона active_run_id сбрасывается в None."""
     app = _app(tmp_path)
     assert app.state.active_run_id is None
     c = TestClient(app)
     r = c.post("/classrooms/Lab 1/run", json={"start_step": 1, "end_step": 4})
-    assert r.status_code == 202  # guard did not block
+    assert r.status_code == 202  # защита не заблокировала
 
 
-# --- POST /classrooms/{name}/shutdown — RunGuard shutdown exclusion ---
+# --- POST /classrooms/{name}/shutdown — исключение машин из активного прогона ---
 
 def test_shutdown_excludes_machines_from_active_run(tmp_path):
+    """Проверяет, что машины, участвующие в активном прогоне, попадают в список skipped при выключении."""
     app = _app(tmp_path)
-    # Simulate an active run targeting 10.0.0.1
+    # Имитируем активный прогон, целящийся в 10.0.0.1
     run_id = "active-run-00000000"
     app.state.active_run_id = run_id
-    # Store a fake runner whose state has 10.0.0.1 as a machine
     from classctl.core.run_state_machine import RunStateMachine, MachineStatus
 
     class _FakeRunner:
@@ -141,7 +148,7 @@ def test_shutdown_excludes_machines_from_active_run(tmp_path):
     r = c.post("/classrooms/Lab 1/shutdown", json={"machine_ips": ["10.0.0.1", "10.0.0.2"]})
     assert r.status_code == 200
     body = r.json()
-    # 10.0.0.1 is in the active run — must appear in skipped, not attempted
+    # 10.0.0.1 участвует в прогоне — должна быть в skipped, а не в attempted
     skipped_ips = [s["ip"] for s in body.get("skipped", [])]
     assert "10.0.0.1" in skipped_ips
 
@@ -149,6 +156,7 @@ def test_shutdown_excludes_machines_from_active_run(tmp_path):
 # --- POST /classrooms/{name}/run ---
 
 def test_start_run_returns_run_id(tmp_path):
+    """Проверяет, что успешный запуск прогона возвращает непустой run_id."""
     c = _client(tmp_path)
     r = c.post("/classrooms/Lab 1/run", json={"start_step": 1, "end_step": 4})
     assert r.status_code == 202
@@ -158,16 +166,18 @@ def test_start_run_returns_run_id(tmp_path):
 
 
 def test_start_run_unknown_classroom_404(tmp_path):
+    """Проверяет, что запуск прогона для несуществующей аудитории возвращает 404."""
     c = _client(tmp_path)
     r = c.post("/classrooms/Ghost/run", json={"start_step": 1, "end_step": 4})
     assert r.status_code == 404
 
 
 def test_start_run_with_machine_selection(tmp_path):
+    """Проверяет, что прогон с указанным списком machine_ips включает только выбранные машины."""
     c = _client(tmp_path)
     r = c.post("/classrooms/Lab 1/run", json={
         "start_step": 1, "end_step": 4,
-        "machine_ips": ["10.0.0.1"],  # only one machine
+        "machine_ips": ["10.0.0.1"],  # только одна машина
     })
     assert r.status_code == 202
     run_id = r.json()["run_id"]
@@ -181,6 +191,7 @@ def test_start_run_with_machine_selection(tmp_path):
 # --- GET /runs/{run_id}/state ---
 
 def test_get_state_returns_serialized_rsm(tmp_path):
+    """Проверяет, что GET /runs/{run_id}/state возвращает корректно сериализованное состояние RSM."""
     c = _client(tmp_path)
     run_id = c.post("/classrooms/Lab 1/run",
                     json={"start_step": 1, "end_step": 4}).json()["run_id"]
@@ -196,6 +207,7 @@ def test_get_state_returns_serialized_rsm(tmp_path):
 
 
 def test_get_state_unknown_run_404(tmp_path):
+    """Проверяет, что GET /runs/{run_id}/state возвращает 404 для несуществующего прогона."""
     c = _client(tmp_path)
     r = c.get("/runs/nonexistent/state")
     assert r.status_code == 404
@@ -204,21 +216,24 @@ def test_get_state_unknown_run_404(tmp_path):
 # --- POST /runs/{run_id}/decide ---
 
 def test_decide_unknown_run_404(tmp_path):
+    """Проверяет, что POST /runs/{run_id}/decide возвращает 404 для несуществующего прогона."""
     c = _client(tmp_path)
     r = c.post("/runs/nonexistent/decide", json={"action": "abort"})
     assert r.status_code == 404
 
 
 def test_decide_accepts_valid_actions(tmp_path):
+    """Проверяет, что допустимое действие (abort) принимается даже если прогон не на паузе."""
     c = _client(tmp_path)
     run_id = c.post("/classrooms/Lab 1/run",
                     json={"start_step": 1, "end_step": 4}).json()["run_id"]
-    # We can POST a decision even if the run isn't paused — it goes into the queue
+    # Можно отправить решение, даже если прогон не на паузе — оно попадёт в очередь
     r = c.post(f"/runs/{run_id}/decide", json={"action": "abort"})
     assert r.status_code == 200
 
 
 def test_decide_invalid_action_422(tmp_path):
+    """Проверяет, что недопустимое действие возвращает 422 (ошибка валидации)."""
     c = _client(tmp_path)
     run_id = c.post("/classrooms/Lab 1/run",
                     json={"start_step": 1, "end_step": 4}).json()["run_id"]
@@ -229,6 +244,7 @@ def test_decide_invalid_action_422(tmp_path):
 # --- WebSocket /runs/{run_id}/ws ---
 
 def test_ws_sends_snapshot_on_connect(tmp_path):
+    """Проверяет, что при подключении к WebSocket сразу отправляется снимок состояния."""
     c = _client(tmp_path)
     run_id = c.post("/classrooms/Lab 1/run",
                     json={"start_step": 1, "end_step": 4}).json()["run_id"]
@@ -240,10 +256,11 @@ def test_ws_sends_snapshot_on_connect(tmp_path):
 
 
 def test_ws_unknown_run_closes_immediately(tmp_path):
+    """Проверяет, что WebSocket для несуществующего прогона немедленно закрывается."""
     c = _client(tmp_path)
     from starlette.websockets import WebSocketState
     try:
         with c.websocket_connect("/runs/ghost/ws") as ws:
-            ws.receive_text()  # should raise since server closes it
+            ws.receive_text()  # должно выбросить исключение, так как сервер закрывает соединение
     except Exception:
-        pass  # expected — server closes the connection
+        pass  # ожидаемо — сервер закрывает соединение

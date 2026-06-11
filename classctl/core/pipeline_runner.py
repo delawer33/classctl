@@ -1,7 +1,7 @@
 import asyncio
 from typing import Callable, Coroutine, Any
 
-OUTPUT_CAP_BYTES = 512 * 1024  # max bytes stored per machine in RunState.output
+OUTPUT_CAP_BYTES = 512 * 1024  # максимум байт на машину, хранимых в RunState.output
 OUTPUT_CAP_SENTINEL = "[начало вывода усечено — показаны последние 512 КБ]\n"
 
 from classctl.core.config_validator import validate as validate_classroom
@@ -11,7 +11,7 @@ from classctl.core.script_executor import ScriptExecutor, ExecutionResult, Execu
 from classctl.core.ssh_poller import SSHPoller
 from classctl.core.wol import send_wol
 
-# Type alias for the injectable run_script function
+# Псевдоним типа для инъецируемой функции запуска скрипта
 RunScriptFn = Callable[
     [str, int, str, str, str, Callable | None, float],
     Coroutine[Any, Any, ExecutionResult],
@@ -22,6 +22,12 @@ async def _default_run_script(
     ip: str, port: int, username: str, key_path: str,
     script_path: str, on_output: Callable | None, timeout: float,
 ) -> ExecutionResult:
+    """Создаёт ScriptExecutor и запускает скрипт script_path на машине ip.
+
+    Принимает параметры подключения (ip, port, username, key_path), путь к скрипту,
+    коллбэк on_output для стриминга вывода и таймаут timeout в секундах.
+    Возвращает ExecutionResult с результатом выполнения.
+    """
     executor = ScriptExecutor(
         host=ip, port=port, username=username, key_path=key_path,
         on_output=on_output, timeout=timeout,
@@ -30,38 +36,38 @@ async def _default_run_script(
 
 
 class ConfigurationError(ValueError):
-    """Raised before a Run starts when the classroom configuration is invalid."""
+    """Выбрасывается до запуска прогона, если конфигурация аудитории недействительна."""
 
 
 class PipelineRunner:
-    """Drives RunStateMachine through each step, running scripts in parallel.
+    """Управляет RunStateMachine, выполняя скрипты параллельно на каждом шаге.
 
-    Operator decisions (retry/skip/abort) are delivered via deliver_decision().
-    All state changes are observable via runner.state and streamed as events
-    through runner.events (consumed by the WebSocket handler).
+    Решения оператора (повтор/пропуск/прерывание) передаются через deliver_decision().
+    Все изменения состояния доступны через runner.state и стримятся как события
+    через runner.events (потребляются обработчиком WebSocket).
 
-    WoL sender and SSH poller are injected to allow stubbing in unit tests.
-    Setting wol_sender=None disables the WoL phase entirely.
+    Отправитель WoL и SSH-поллер инъецируются для замены в юнит-тестах.
+    Установка wol_sender=None полностью отключает фазу WoL.
     """
 
-    DEFAULT_SCRIPT_TIMEOUT = 5400.0  # 1.5 hours per spec
+    DEFAULT_SCRIPT_TIMEOUT = 5400.0  # 1,5 часа согласно спецификации
 
     def __init__(
         self,
         rsm: RunStateMachine,
         classroom: dict,
-        machines: list[dict],       # list of {ip, mac, port?, username?}
+        machines: list[dict],       # список {ip, mac, port?, username?}
         error_patterns: list[str],
         wol_sender: Callable[[str], None] | None = send_wol,
         ssh_poller: SSHPoller | None = None,
         run_script: RunScriptFn = _default_run_script,
         post_wol_delay: float = 60.0,
         script_timeout: float = DEFAULT_SCRIPT_TIMEOUT,
-        wol_poll_emit_interval: float = 30.0,  # seconds between wol_polling events
+        wol_poll_emit_interval: float = 30.0,  # секунды между событиями wol_polling
     ) -> None:
         self._rsm = rsm
         self._classroom = classroom
-        # Keyed by IP for fast lookup during execution
+        # Индексируем по IP для быстрого поиска при выполнении
         self._machines: dict[str, dict] = {m["ip"]: m for m in machines}
         self._error_patterns = error_patterns
         self._wol_sender = wol_sender
@@ -76,27 +82,32 @@ class PipelineRunner:
         self._decision_queue: asyncio.Queue = asyncio.Queue()
         self._event_queue: asyncio.Queue = asyncio.Queue()
 
-    # --- Public interface ---
+    # --- Публичный интерфейс ---
 
     @property
     def state(self):
+        """Возвращает текущее состояние прогона из RunStateMachine."""
         return self._rsm.state
 
     @property
     def events(self) -> asyncio.Queue:
-        """Queue of event dicts consumed by the WebSocket handler."""
+        """Очередь событий-словарей, потребляемых обработчиком WebSocket."""
         return self._event_queue
 
     def deliver_decision(self, action: str, ips: list[str] | None = None) -> None:
-        """Deliver operator decision when the run is paused.
+        """Доставляет решение оператора в момент паузы прогона.
 
-        action: 'retry' | 'skip' | 'abort'
-        ips: specific machines to retry (None = all failed ones)
+        Принимает action — одно из 'retry', 'skip', 'abort' — и необязательный список
+        ips с конкретными машинами для повтора (None означает все неудачные).
         """
         self._decision_queue.put_nowait({"action": action, "ips": ips})
 
     async def run(self) -> None:
-        """Execute the full pipeline from start_step to end_step."""
+        """Выполняет полный конвейер от start_step до end_step.
+
+        Сначала валидирует конфигурацию, затем проходит фазу WoL и последовательно
+        выполняет шаги. При паузе ждёт решения оператора из очереди решений.
+        """
         self._validate()
         await self._wol_phase()
 
@@ -106,7 +117,7 @@ class PipelineRunner:
             self._rsm.start_step(step)
             self._emit({"type": "step_started", "step": step})
 
-            # Only machines that start_step promoted to RUNNING get executed
+            # Выполняем только машины, которые start_step перевёл в RUNNING
             running_ips = [
                 ip for ip, s in self._rsm.state.machines.items()
                 if s == MachineStatus.RUNNING
@@ -129,7 +140,7 @@ class PipelineRunner:
                     before = {ip: s for ip, s in self._rsm.state.machines.items()}
                     self._rsm.operator_retry(decision.get("ips"))
                     self._emit_changed_machines(before)
-                    # step variable stays the same — re-run current step
+                    # переменная step остаётся прежней — перевыполняем текущий шаг
                 elif action == "skip":
                     before = {ip: s for ip, s in self._rsm.state.machines.items()}
                     self._rsm.operator_skip()
@@ -143,9 +154,10 @@ class PipelineRunner:
 
         self._emit({"type": "run_finished", "phase": self._rsm.state.phase.name})
 
-    # --- Private ---
+    # --- Приватные методы ---
 
     def _validate(self) -> None:
+        """Проверяет конфигурацию аудитории перед запуском. Выбрасывает ConfigurationError при ошибке."""
         errors = validate_classroom(
             self._classroom,
             self._rsm.state.start_step,
@@ -155,20 +167,26 @@ class PipelineRunner:
             raise ConfigurationError(errors[0])
 
     async def _wol_phase(self) -> None:
+        """Отправляет WoL-пакеты всем машинам и ждёт доступности SSH-порта.
+
+        Если wol_sender равен None — фаза пропускается. После успешного опроса
+        машины, не ответившие в отведённое время, помечаются как SKIPPED.
+        Завершается паузой post_wol_delay для полного запуска ОС и служб.
+        """
         if not self._wol_sender:
             return
 
         ips = list(self._rsm.state.machines.keys())
 
-        # Broadcast WoL packets
+        # Рассылаем WoL-пакеты
         for ip in ips:
             mac = self._machines.get(ip, {}).get("mac")
             if mac:
                 self._wol_sender(mac)
         self._emit({"type": "wol_sent", "ips": ips})
 
-        # Wait for SSH to become available, emitting periodic progress events.
-        # Build a per-machine port map so machines on non-standard ports are polled correctly.
+        # Ждём доступности SSH, периодически генерируя события прогресса.
+        # Строим словарь портов на машину, чтобы корректно опрашивать нестандартные порты.
         port_map = {ip: self._machines.get(ip, {}).get("port", 22) for ip in ips}
         poll_task = asyncio.create_task(self._ssh_poller.wait(ips, port=port_map))
         start = asyncio.get_event_loop().time()
@@ -186,17 +204,22 @@ class PipelineRunner:
             "timed_out": list(timed_out),
         })
 
-        # Mark WoL-failed machines as skipped so they don't block the run
+        # Машины, не ответившие на WoL, помечаем как SKIPPED, чтобы не блокировать прогон
         if timed_out:
             for ip in timed_out:
                 self._rsm.state.machines[ip] = MachineStatus.SKIPPED
 
-        # Post-boot delay so VirtualBox and system services can fully start
+        # Задержка после загрузки — VirtualBox и системные службы должны полностью запуститься
         if self._post_wol_delay > 0:
             await asyncio.sleep(self._post_wol_delay)
 
     async def _run_one(self, ip: str, step: int) -> None:
-        """Execute one step on one machine and feed the result into the RSM."""
+        """Выполняет один шаг step на одной машине ip и передаёт результат в RSM.
+
+        Определяет путь к скрипту из конфигурации аудитории, запускает его через
+        run_script и в зависимости от результата вызывает соответствующий метод
+        перехода в RunStateMachine.
+        """
         script_dir = self._classroom["script_directory"]
         filename = self._classroom["step_mapping"][str(step)]
         script_path = f"{script_dir}/{filename}"
@@ -231,10 +254,11 @@ class PipelineRunner:
         })
 
     def _emit_changed_machines(self, before: dict) -> None:
-        """Emit machine_update for every machine whose status changed since `before`."""
+        """Генерирует событие machine_update для каждой машины, чей статус изменился относительно before."""
         for ip, status in self._rsm.state.machines.items():
             if status != before.get(ip):
                 self._emit({"type": "machine_update", "ip": ip, "status": status.name})
 
     def _emit(self, event: dict) -> None:
+        """Помещает событие event в очередь событий для доставки через WebSocket."""
         self._event_queue.put_nowait(event)

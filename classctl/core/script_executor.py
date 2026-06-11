@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable
 
@@ -7,22 +7,22 @@ import asyncssh
 
 
 class ExecutionStatus(Enum):
-    COMPLETED = auto()    # script finished (exit code ignored)
-    TIMED_OUT = auto()    # timeout elapsed before script finished
-    DISCONNECTED = auto() # SSH connection dropped mid-run
+    COMPLETED = auto()    # скрипт завершился (код возврата игнорируется)
+    TIMED_OUT = auto()    # таймаут истёк до завершения скрипта
+    DISCONNECTED = auto() # SSH-соединение разорвалось в процессе выполнения
 
 
 @dataclass
 class ExecutionResult:
     status: ExecutionStatus
-    output: str  # full captured stdout+stderr
+    output: str  # полный захваченный stdout+stderr
 
 
 class ScriptExecutor:
-    """Runs a single script on a single machine via SSH and captures output.
+    """Запускает один скрипт на одной машине через SSH и захватывает вывод.
 
-    Exit codes are intentionally ignored — the Error Detector decides whether
-    output indicates a problem. That keeps this class ignorant of domain policy.
+    Коды возврата намеренно игнорируются — Детектор ошибок решает, содержит ли
+    вывод признаки проблем. Это позволяет данному классу не знать о доменной политике.
     """
 
     def __init__(
@@ -31,7 +31,7 @@ class ScriptExecutor:
         port: int,
         username: str,
         key_path: str,
-        timeout: float = 5400.0,  # 1.5 hours — matches the longest real script
+        timeout: float = 5400.0,  # 1,5 часа — соответствует самому долгому реальному скрипту
         on_output: Callable[[str], None] | None = None,
     ) -> None:
         self._host = host
@@ -39,13 +39,15 @@ class ScriptExecutor:
         self._username = username
         self._key_path = key_path
         self._timeout = timeout
-        self._on_output = on_output  # called with each chunk as it arrives
+        self._on_output = on_output  # вызывается с каждым фрагментом по мере поступления
 
     async def run(self, command: str) -> ExecutionResult:
-        """Connect, execute command, stream output, return result.
+        """Подключается по SSH, выполняет команду command, стримит вывод и возвращает результат.
 
-        Never raises for script failures or unexpected exit codes.
-        Only raises for unrecoverable connection setup errors (e.g. bad key).
+        Принимает строку command — путь к скрипту или произвольная команда.
+        Никогда не выбрасывает исключения при ошибках скрипта или неожиданных кодах завершения.
+        Исключения возможны только при неустранимых ошибках установки соединения (например,
+        неверный ключ).
         """
         chunks: list[str] = []
 
@@ -55,7 +57,7 @@ class ScriptExecutor:
                 port=self._port,
                 username=self._username,
                 client_keys=[self._key_path],
-                known_hosts=None,  # test containers have no pre-registered host key
+                known_hosts=None,  # тестовые контейнеры не имеют заранее зарегистрированного ключа хоста
             ) as conn:
                 try:
                     async with asyncio.timeout(self._timeout):
@@ -66,8 +68,8 @@ class ScriptExecutor:
                                     if self._on_output:
                                         self._on_output(line)
 
-                            # Read stdout and stderr concurrently so lines are
-                            # captured in the order they arrive, not stdout-then-stderr.
+                            # Читаем stdout и stderr одновременно, чтобы строки захватывались
+                            # в порядке поступления, а не сначала stdout, потом stderr.
                             await asyncio.gather(
                                 _read(process.stdout),
                                 _read(process.stderr),

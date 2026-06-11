@@ -1,32 +1,34 @@
-"""Unit tests for SSHPoller configurable timeout and classroom wol_timeout field."""
+"""Юнит-тесты для конфигурируемого таймаута SSHPoller и поля wol_timeout аудитории."""
 
 import asyncio
 import pytest
 from classctl.core.ssh_poller import SSHPoller
 
 
-# ── Cycle 1: default timeout is 300 s ────────────────────────────────────────
+# ── Цикл 1: таймаут по умолчанию — 300 с ────────────────────────────────────
 
 def test_ssh_poller_default_timeout_is_300():
+    """Проверяет, что SSHPoller по умолчанию имеет таймаут 300 секунд."""
     poller = SSHPoller()
     assert poller.timeout == 300.0
 
 
-# ── Per-machine port map ──────────────────────────────────────────────────────
+# ── Словарь портов на машину ──────────────────────────────────────────────────
 
 class _CapturingPoller(SSHPoller):
-    """SSHPoller subclass that records (ip, port) probes and returns True instantly."""
+    """Подкласс SSHPoller, записывающий зондирования (ip, port) и мгновенно возвращающий True."""
     def __init__(self):
         super().__init__()
         self.probed: list[tuple[str, int]] = []
 
     async def _poll_one(self, ip: str, port: int) -> bool:
+        """Записывает пробу (ip, port) и немедленно сообщает об успехе."""
         self.probed.append((ip, port))
         return True
 
 
 async def test_wait_uses_per_machine_port_from_mapping():
-    """When port is a dict, each IP is polled on its own port."""
+    """Проверяет, что при словарном port каждый IP опрашивается на своём порту."""
     poller = _CapturingPoller()
     port_map = {"10.0.0.1": 2222, "10.0.0.2": 3333}
     reachable, timed_out = await poller.wait(["10.0.0.1", "10.0.0.2"], port=port_map)
@@ -37,14 +39,14 @@ async def test_wait_uses_per_machine_port_from_mapping():
 
 
 async def test_wait_uses_single_int_port_for_all_ips():
-    """When port is an int, every IP uses that port (backward-compatible)."""
+    """Проверяет, что при числовом port все IP опрашиваются на одном порту (обратная совместимость)."""
     poller = _CapturingPoller()
     await poller.wait(["10.0.0.1", "10.0.0.2"], port=9999)
 
     assert all(port == 9999 for _, port in poller.probed)
 
 
-# ── Cycle 2: PipelineRunner passes wol_timeout to SSHPoller ──────────────────
+# ── Цикл 2: PipelineRunner передаёт wol_timeout в SSHPoller ──────────────────
 
 import asyncio
 import pytest
@@ -54,7 +56,7 @@ from classctl.core.script_executor import ExecutionResult, ExecutionStatus
 
 
 async def test_pipeline_runner_passes_per_machine_port_map_to_poller(tmp_path):
-    """PipelineRunner passes {ip: port} dict to the poller, not a single port."""
+    """Проверяет, что PipelineRunner передаёт поллеру словарь {ip: port}, а не единственный порт."""
     key = tmp_path / "key"; key.write_text("x")
     classroom = {
         "name": "Test",
@@ -63,8 +65,8 @@ async def test_pipeline_runner_passes_per_machine_port_map_to_poller(tmp_path):
         "step_mapping": {"1": "step1.sh"},
     }
     machines = [
-        {"ip": "10.0.0.1", "mac": "aa:bb:cc:00:00:01"},          # default port 22
-        {"ip": "10.0.0.2", "mac": "aa:bb:cc:00:00:02", "port": 2222},  # custom port
+        {"ip": "10.0.0.1", "mac": "aa:bb:cc:00:00:01"},          # порт по умолчанию 22
+        {"ip": "10.0.0.2", "mac": "aa:bb:cc:00:00:02", "port": 2222},  # нестандартный порт
     ]
 
     class CapturingPoller:
@@ -93,6 +95,7 @@ async def test_pipeline_runner_passes_per_machine_port_map_to_poller(tmp_path):
 
 
 async def test_pipeline_runner_passes_wol_timeout_to_poller(tmp_path):
+    """Проверяет, что PipelineRunner устанавливает timeout поллера из поля wol_timeout аудитории."""
     key = tmp_path / "key"; key.write_text("x")
     classroom = {
         "name": "Test",
@@ -105,7 +108,7 @@ async def test_pipeline_runner_passes_wol_timeout_to_poller(tmp_path):
 
     class CapturingPoller:
         def __init__(self):
-            self.timeout = None  # will be set by PipelineRunner
+            self.timeout = None  # будет установлен PipelineRunner
 
         async def wait(self, ips, port=22):
             captured_timeout.append(self.timeout)
@@ -133,18 +136,19 @@ async def test_pipeline_runner_passes_wol_timeout_to_poller(tmp_path):
 
 
 async def test_pipeline_runner_uses_300s_when_wol_timeout_absent(tmp_path):
+    """Проверяет, что при отсутствии wol_timeout в аудитории таймаут поллера не изменяется."""
     key = tmp_path / "key"; key.write_text("x")
     classroom = {
         "name": "Test",
         "ssh_key_path": str(key),
         "script_directory": "/scripts",
         "step_mapping": {"1": "step1.sh"},
-        # no wol_timeout field
+        # поле wol_timeout отсутствует
     }
     captured_timeout = []
 
     class CapturingPoller:
-        timeout = 999.0  # starts wrong; PipelineRunner should not touch it when absent
+        timeout = 999.0  # намеренно нестандартное значение; PipelineRunner не должен его трогать
 
         async def wait(self, ips, port=22):
             captured_timeout.append(self.timeout)
@@ -168,5 +172,5 @@ async def test_pipeline_runner_uses_300s_when_wol_timeout_absent(tmp_path):
     )
     await runner.run()
 
-    # When no wol_timeout in classroom, injected poller's timeout is left unchanged
+    # Если wol_timeout отсутствует, инъецированный timeout поллера не изменяется
     assert captured_timeout == [999.0]

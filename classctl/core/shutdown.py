@@ -2,11 +2,12 @@ import asyncssh
 
 
 async def ssh_shutdown(ip: str, key_path: str, username: str) -> dict:
-    """Connect via SSH and run the system shutdown command.
+    """Подключается по SSH и выполняет команду выключения системы.
 
-    Returns a result dict so callers can report per-machine status
-    without raising — shutdown errors are expected (the machine dies
-    before the SSH session closes cleanly).
+    Принимает IP-адрес машины ip, путь к SSH-ключу key_path и имя пользователя username.
+    Возвращает словарь с полями 'ip' и 'ok', чтобы вызывающий код мог сообщить о результате
+    по каждой машине без исключений — ошибки при выключении ожидаемы, так как машина
+    отключается до завершения SSH-сессии.
     """
     try:
         async with asyncssh.connect(

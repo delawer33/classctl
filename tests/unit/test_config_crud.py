@@ -1,7 +1,7 @@
 import pytest
 from classctl.core.config import ConfigManager
 
-# A minimal valid classroom dict used across tests
+# Минимальный корректный словарь аудитории, используемый во всех тестах
 ROOM_A = {
     "name": "Room A",
     "subnet": "192.168.10.0/24",
@@ -18,15 +18,17 @@ ROOM_A = {
 
 
 def test_add_classroom_persists(tmp_path):
+    """Проверяет, что добавленная аудитория сохраняется на диск и доступна после перезагрузки."""
     cm = ConfigManager(tmp_path / "config.json")
     cm.add_classroom(ROOM_A)
-    # Reload from disk to confirm persistence
+    # Перезагружаем с диска для проверки персистентности
     cm2 = ConfigManager(tmp_path / "config.json")
     assert len(cm2.classrooms) == 1
     assert cm2.classrooms[0]["name"] == "Room A"
 
 
 def test_get_classroom_by_name(tmp_path):
+    """Проверяет, что get_classroom возвращает корректные данные аудитории по имени."""
     cm = ConfigManager(tmp_path / "config.json")
     cm.add_classroom(ROOM_A)
     room = cm.get_classroom("Room A")
@@ -34,12 +36,14 @@ def test_get_classroom_by_name(tmp_path):
 
 
 def test_get_unknown_classroom_raises(tmp_path):
+    """Проверяет, что get_classroom выбрасывает KeyError для несуществующей аудитории."""
     cm = ConfigManager(tmp_path / "config.json")
     with pytest.raises(KeyError):
         cm.get_classroom("Nonexistent")
 
 
 def test_add_duplicate_name_raises(tmp_path):
+    """Проверяет, что повторное добавление аудитории с тем же именем выбрасывает ValueError."""
     cm = ConfigManager(tmp_path / "config.json")
     cm.add_classroom(ROOM_A)
     with pytest.raises(ValueError):
@@ -47,6 +51,7 @@ def test_add_duplicate_name_raises(tmp_path):
 
 
 def test_update_classroom(tmp_path):
+    """Проверяет, что update_classroom заменяет данные аудитории."""
     cm = ConfigManager(tmp_path / "config.json")
     cm.add_classroom(ROOM_A)
     updated = {**ROOM_A, "subnet": "10.0.0.0/24"}
@@ -55,12 +60,14 @@ def test_update_classroom(tmp_path):
 
 
 def test_update_unknown_classroom_raises(tmp_path):
+    """Проверяет, что update_classroom выбрасывает KeyError для несуществующей аудитории."""
     cm = ConfigManager(tmp_path / "config.json")
     with pytest.raises(KeyError):
         cm.update_classroom("Ghost", ROOM_A)
 
 
 def test_delete_classroom(tmp_path):
+    """Проверяет, что delete_classroom удаляет аудиторию из списка."""
     cm = ConfigManager(tmp_path / "config.json")
     cm.add_classroom(ROOM_A)
     cm.delete_classroom("Room A")
@@ -68,12 +75,14 @@ def test_delete_classroom(tmp_path):
 
 
 def test_delete_unknown_classroom_raises(tmp_path):
+    """Проверяет, что delete_classroom выбрасывает KeyError для несуществующей аудитории."""
     cm = ConfigManager(tmp_path / "config.json")
     with pytest.raises(KeyError):
         cm.delete_classroom("Ghost")
 
 
 def test_delete_persists(tmp_path):
+    """Проверяет, что удаление аудитории сохраняется на диск."""
     path = tmp_path / "config.json"
     cm = ConfigManager(path)
     cm.add_classroom(ROOM_A)

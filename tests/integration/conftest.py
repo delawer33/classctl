@@ -1,10 +1,11 @@
-"""Pytest fixtures that spin up SSH-enabled Docker containers for integration tests.
+"""Фикстуры pytest, запускающие SSH-контейнеры Docker для интеграционных тестов.
 
-Each container runs Alpine Linux + OpenSSH with a generated test key pair.
-The fake_script.sh inside the container is parameterizable via its arguments
-so tests can control sleep duration, exit code, and output content.
+Каждый контейнер работает под управлением Alpine Linux + OpenSSH с генерируемой
+тестовой парой ключей. Скрипт fake_script.sh внутри контейнера параметризуется
+аргументами, позволяя тестам управлять длительностью сна, кодом возврата и выводом.
 
-Containers are session-scoped to avoid per-test startup overhead (~2s each).
+Контейнеры имеют область видимости session, чтобы избежать накладных расходов
+на запуск при каждом тесте (~2 с каждый).
 """
 
 import socket
@@ -22,22 +23,22 @@ _DOCKER_DIR = Path(__file__).parent.parent / "docker"
 
 @dataclass
 class SSHContainer:
-    """Everything a test needs to connect to a fake SSH workstation."""
+    """Всё необходимое для подключения к фиктивной SSH-рабочей станции."""
     host: str
     port: int
     username: str
-    key_path: Path   # path to the private key file
+    key_path: Path   # путь к файлу закрытого ключа
 
 
 def _free_port() -> int:
-    """Find an available TCP port on localhost."""
+    """Находит свободный TCP-порт на localhost."""
     with socket.socket() as s:
         s.bind(("", 0))
         return s.getsockname()[1]
 
 
 def _wait_for_ssh(host: str, port: int, timeout: float = 30.0) -> None:
-    """Poll until SSH port accepts connections or timeout expires."""
+    """Опрашивает порт host:port до его открытия или истечения таймаута timeout секунд."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -50,15 +51,15 @@ def _wait_for_ssh(host: str, port: int, timeout: float = 30.0) -> None:
 
 @pytest.fixture(scope="session")
 def ssh_container():
-    """Single SSH container shared across the test session.
+    """Единственный SSH-контейнер, разделяемый в рамках всей тестовой сессии.
 
-    The public key is injected after the container starts via docker exec to
-    avoid build-arg quoting issues (ed25519 keys contain spaces).
-    The container is removed when the session ends.
+    Публичный ключ вставляется в контейнер после его запуска через docker exec,
+    чтобы избежать проблем с экранированием аргументов сборки (ключи ed25519 содержат пробелы).
+    Контейнер удаляется по завершении сессии.
     """
     client = docker.from_env()
 
-    # Build (or reuse cached) image — no key baked in
+    # Собираем (или используем кешированный) образ — ключ не встроен
     image, _ = client.images.build(
         path=str(_DOCKER_DIR),
         dockerfile="Dockerfile.ssh",
@@ -66,7 +67,7 @@ def ssh_container():
         tag="classctl-test-ssh:latest",
     )
 
-    # Generate a fresh key pair for this test session
+    # Генерируем новую пару ключей для данной тестовой сессии
     with tempfile.TemporaryDirectory() as tmpdir:
         key_path = Path(tmpdir) / "test_key"
         subprocess.run(
@@ -83,13 +84,13 @@ def ssh_container():
             remove=True,
         )
 
-        # Copy private key to stable path before tmpdir is cleaned up
+        # Копируем закрытый ключ в постоянное место до очистки tmpdir
         stable_key = Path(tempfile.mktemp(prefix="classctl_test_key_"))
 
         try:
             _wait_for_ssh("127.0.0.1", port)
 
-            # Inject the public key into the running container
+            # Вставляем публичный ключ в запущенный контейнер
             container.exec_run(
                 ["sh", "-c", f"echo '{pub_key}' > /home/testuser/.ssh/authorized_keys && chmod 600 /home/testuser/.ssh/authorized_keys"],
                 user="testuser",

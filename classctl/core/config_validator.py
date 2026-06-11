@@ -2,18 +2,19 @@ import os
 
 
 def validate(classroom: dict, start_step: int, end_step: int) -> list[str]:
-    """Validate classroom config before starting a Run.
+    """Проверяет конфигурацию аудитории classroom перед запуском прогона.
 
-    Returns a list of Russian-language error strings.
-    Empty list means the config is valid and the Run can proceed.
-    All checks are local (no network calls).
+    Принимает словарь аудитории, номер начального шага start_step и конечного end_step.
+    Возвращает список строк с описанием ошибок на русском языке. Пустой список означает,
+    что конфигурация корректна и прогон может быть запущен. Все проверки выполняются
+    локально, без сетевых вызовов.
     """
     errors = []
 
     key_path = classroom.get("ssh_key_path", "")
     if not os.path.isfile(key_path):
         errors.append(f"SSH-ключ не найден: {key_path}")
-        return errors  # no point checking further without a key
+        return errors  # дальнейшая проверка без ключа бессмысленна
 
     if not classroom.get("script_directory", "").strip():
         errors.append("Каталог скриптов не указан")

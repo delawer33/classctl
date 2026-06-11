@@ -1,7 +1,7 @@
-"""Smoke test: confirms the SSH container fixture is reachable via asyncssh.
+"""Дымовой тест: подтверждает доступность SSH-контейнера через asyncssh.
 
-This is the tracer bullet for all integration tests — if this passes,
-Script Executor and SSH Poller tests can rely on the same fixture.
+Это «трассирующий выстрел» для всех интеграционных тестов — если он проходит,
+тесты ScriptExecutor и SSHPoller могут использовать ту же фикстуру.
 """
 
 import asyncssh
@@ -10,12 +10,13 @@ import pytest
 
 @pytest.mark.integration
 async def test_ssh_container_is_reachable(ssh_container):
+    """Проверяет, что к контейнеру можно подключиться по SSH и выполнить простую команду."""
     async with asyncssh.connect(
         ssh_container.host,
         port=ssh_container.port,
         username=ssh_container.username,
         client_keys=[str(ssh_container.key_path)],
-        known_hosts=None,   # test environment; host key not pre-registered
+        known_hosts=None,   # тестовая среда; ключ хоста не зарегистрирован заранее
     ) as conn:
         result = await conn.run("echo hello", check=True)
         assert result.stdout.strip() == "hello"
@@ -23,6 +24,7 @@ async def test_ssh_container_is_reachable(ssh_container):
 
 @pytest.mark.integration
 async def test_fake_script_runs_and_outputs(ssh_container):
+    """Проверяет, что fake_script.sh запускается и выводит заданный паттерн ошибки."""
     async with asyncssh.connect(
         ssh_container.host,
         port=ssh_container.port,
@@ -39,6 +41,7 @@ async def test_fake_script_runs_and_outputs(ssh_container):
 
 @pytest.mark.integration
 async def test_fake_script_sleep_and_exit_code(ssh_container):
+    """Проверяет, что fake_script.sh корректно возвращает указанный код завершения."""
     async with asyncssh.connect(
         ssh_container.host,
         port=ssh_container.port,
@@ -46,7 +49,7 @@ async def test_fake_script_sleep_and_exit_code(ssh_container):
         client_keys=[str(ssh_container.key_path)],
         known_hosts=None,
     ) as conn:
-        # Exit code 1 — classctl ignores it, but we verify the script ran
+        # Код возврата 1 — classctl его игнорирует, но проверяем что скрипт выполнился
         result = await conn.run(
             "/home/testuser/scripts/fake_script.sh --sleep 0 --exit-code 1",
         )

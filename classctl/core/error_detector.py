@@ -1,9 +1,9 @@
 def detect(output: str, patterns: list[str]) -> list[str]:
-    """Return lines from output that contain any pattern (case-insensitive).
+    """Возвращает строки из output, содержащие хотя бы один паттерн из patterns (без учёта регистра).
 
-    Exit codes from scripts are unreliable, so this is the sole mechanism
-    for flagging problems. Each matching line appears at most once even if
-    multiple patterns hit it.
+    Коды завершения скриптов ненадёжны, поэтому данная функция является единственным
+    механизмом обнаружения проблем. Каждая совпавшая строка включается в результат
+    не более одного раза, даже если под неё подходят несколько паттернов.
     """
     if not output or not patterns:
         return []

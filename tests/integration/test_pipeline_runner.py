@@ -1,7 +1,7 @@
-"""Integration tests for Pipeline Runner against real SSH containers.
+"""Интеграционные тесты для PipelineRunner против реальных SSH-контейнеров.
 
-Uses the session-scoped ssh_container fixture from conftest.py.
-Scripts are fake_script.sh with controlled arguments.
+Используется фикстура ssh_container с областью видимости session из conftest.py.
+Скрипты — fake_script.sh с управляемыми аргументами.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ SCRIPT = "fake_script.sh"
 
 
 def _classroom(key_path, pattern="none"):
-    """All 4 steps map to fake_script.sh with a controlled output pattern."""
+    """Создаёт конфигурацию аудитории, где все 4 шага отображены на fake_script.sh."""
     return {
         "name": "Test",
         "ssh_key_path": str(key_path),
@@ -24,6 +24,7 @@ def _classroom(key_path, pattern="none"):
 
 
 def _runner(ssh_container, rsm, pattern="none"):
+    """Создаёт PipelineRunner, подключённый к ssh_container с заданным паттерном вывода."""
     machines = [{
         "ip": ssh_container.host,
         "mac": "aa:bb:cc:00:00:01",
@@ -31,10 +32,9 @@ def _runner(ssh_container, rsm, pattern="none"):
         "username": ssh_container.username,
     }]
     classroom = _classroom(ssh_container.key_path)
-    # Append output-pattern arg to script path via a wrapper
-    original_run = None
 
     async def run_with_args(ip, port, username, key_path, script_path, on_output, timeout):
+        """Запускает скрипт с дополнительным аргументом --output-pattern для управления выводом."""
         from classctl.core.script_executor import ScriptExecutor
         ex = ScriptExecutor(
             host=ip, port=port, username=username, key_path=key_path,
@@ -55,6 +55,7 @@ def _runner(ssh_container, rsm, pattern="none"):
 
 @pytest.mark.integration
 async def test_full_pipeline_all_steps_succeed(ssh_container):
+    """Проверяет, что прогон без ошибок проходит все шаги и завершается со статусом COMPLETED."""
     rsm = RunStateMachine(
         start_step=1, end_step=4,
         target_ips=[ssh_container.host],
@@ -68,6 +69,7 @@ async def test_full_pipeline_all_steps_succeed(ssh_container):
 
 @pytest.mark.integration
 async def test_pipeline_pauses_on_flagged_output(ssh_container):
+    """Проверяет, что вывод с паттерном ошибки переводит прогон в PAUSED."""
     rsm = RunStateMachine(
         start_step=1, end_step=4,
         target_ips=[ssh_container.host],
@@ -84,19 +86,20 @@ async def test_pipeline_pauses_on_flagged_output(ssh_container):
 
     await asyncio.gather(runner.run(), watch_and_skip())
     assert paused.is_set()
-    # Machine was skipped on first step then excluded from remaining steps
+    # Машина была пропущена на первом шаге и исключена из последующих
     assert rsm.state.machines[ssh_container.host] == MachineStatus.SKIPPED
 
 
 @pytest.mark.integration
 async def test_pipeline_retry_then_succeed(ssh_container):
-    """First call emits error pattern; after retry the machine succeeds."""
+    """Проверяет, что после повтора машина успешно завершает оставшиеся шаги."""
     call_count = {"n": 0}
 
     async def run_with_flip(ip, port, username, key_path, script_path, on_output, timeout):
+        """Первый вызов возвращает ошибку, все последующие — успех."""
         from classctl.core.script_executor import ScriptExecutor
         call_count["n"] += 1
-        # Fail on the very first call, succeed on all subsequent calls
+        # Первый вызов — ошибка, все последующие — успех
         pattern = "error" if call_count["n"] == 1 else "none"
         ex = ScriptExecutor(
             host=ip, port=port, username=username, key_path=key_path,
@@ -131,6 +134,7 @@ async def test_pipeline_retry_then_succeed(ssh_container):
 
 @pytest.mark.integration
 async def test_pipeline_abort(ssh_container):
+    """Проверяет, что прерывание при ошибке переводит прогон в статус ABORTED."""
     rsm = RunStateMachine(
         start_step=1, end_step=4,
         target_ips=[ssh_container.host],

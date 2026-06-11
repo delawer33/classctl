@@ -8,13 +8,19 @@ import netifaces
 
 
 def get_gateway() -> str:
+    """Возвращает IP-адрес шлюза по умолчанию для интерфейса IPv4."""
     gws = netifaces.gateways()
     return gws["default"][netifaces.AF_INET][0]
 
 
-# ── Linux: ARP scan via scapy ────────────────────────────────────────────────
+# ── Linux: ARP-сканирование через scapy ─────────────────────────────────────
 
 def _scapy_iface(network_range: str):
+    """Находит сетевой интерфейс scapy, принадлежащий подсети network_range.
+
+    Перебирает все интерфейсы и возвращает тот, чей IP входит в указанную сеть.
+    Если ни один не совпадает, возвращает интерфейс по умолчанию из таблицы маршрутизации.
+    """
     import scapy.all as sc
     net = ipaddress.ip_network(network_range, strict=False)
     for iface in sc.conf.ifaces.values():
@@ -29,6 +35,11 @@ def _scapy_iface(network_range: str):
 
 
 def _scapy_discovery(network_range: str) -> list[tuple[str, str]]:
+    """Выполняет ARP-сканирование подсети network_range через scapy.
+
+    Отправляет широковещательные ARP-запросы и возвращает список пар (ip, mac)
+    для всех ответивших хостов, исключая шлюз по умолчанию.
+    """
     import scapy.all as sc
     iface = _scapy_iface(network_range)
     scanned = sc.srp(
@@ -43,9 +54,10 @@ def _scapy_discovery(network_range: str) -> list[tuple[str, str]]:
     ]
 
 
-# ── Windows: ping sweep + arp -a ─────────────────────────────────────────────
+# ── Windows: ping-обход + arp -a ─────────────────────────────────────────────
 
 def _ping(ip: str) -> None:
+    """Отправляет один ICMP-пакет на адрес ip, чтобы заполнить ARP-кеш Windows."""
     subprocess.run(
         ["ping", "-n", "1", "-w", "500", str(ip)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -53,6 +65,10 @@ def _ping(ip: str) -> None:
 
 
 def _read_arp_table(network_range: str) -> list[tuple[str, str]]:
+    """Читает ARP-таблицу Windows и возвращает пары (ip, mac) для хостов внутри подсети network_range.
+
+    Исключает адреса сети и широковещательный адрес, а также некорректные записи.
+    """
     net = ipaddress.ip_network(network_range, strict=False)
     output = subprocess.check_output(["arp", "-a"], text=True, errors="replace")
     results = []
@@ -76,6 +92,11 @@ def _read_arp_table(network_range: str) -> list[tuple[str, str]]:
 
 
 def _windows_discovery(network_range: str) -> list[tuple[str, str]]:
+    """Обнаруживает хосты в подсети network_range на Windows.
+
+    Параллельно пингует все хосты подсети для заполнения ARP-кеша,
+    затем читает таблицу и возвращает пары (ip, mac), исключая шлюз по умолчанию.
+    """
     net = ipaddress.ip_network(network_range, strict=False)
     hosts = list(net.hosts())
     with ThreadPoolExecutor(max_workers=64) as pool:
@@ -88,9 +109,13 @@ def _windows_discovery(network_range: str) -> list[tuple[str, str]]:
     ]
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Публичный API ─────────────────────────────────────────────────────────────
 
 def get_lan_ip_mac_list(network_range: str) -> list[tuple[str, str]]:
+    """Обнаруживает хосты в подсети network_range и возвращает список пар (ip, mac).
+
+    На Windows использует ping-обход + ARP-таблицу; на остальных платформах — scapy.
+    """
     if platform.system() == "Windows":
         return _windows_discovery(network_range)
     return _scapy_discovery(network_range)

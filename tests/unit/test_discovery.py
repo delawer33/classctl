@@ -1,7 +1,8 @@
-"""Unit tests for the Discovery Engine.
+"""Юнит-тесты для DiscoveryEngine.
 
-lan_ip.py requires root + scapy for real ARP scans, so we stub
-get_lan_ip_mac_list and test only the Discovery Engine's own logic.
+lan_ip.py требует прав root и scapy для реального ARP-сканирования, поэтому
+get_lan_ip_mac_list подменяется через monkeypatch и тестируется только логика
+самого DiscoveryEngine.
 """
 
 import pytest
@@ -9,6 +10,7 @@ from classctl.core.discovery import DiscoveryEngine
 
 
 def test_returns_machine_list(monkeypatch):
+    """Проверяет, что discover возвращает список словарей с ip и mac из результатов сканирования."""
     monkeypatch.setattr(
         "classctl.core.discovery.get_lan_ip_mac_list",
         lambda network_range: [("192.168.1.10", "aa:bb:cc:dd:ee:01")],
@@ -19,6 +21,7 @@ def test_returns_machine_list(monkeypatch):
 
 
 def test_returns_empty_when_no_hosts(monkeypatch):
+    """Проверяет, что discover возвращает пустой список если сканирование не нашло хостов."""
     monkeypatch.setattr(
         "classctl.core.discovery.get_lan_ip_mac_list",
         lambda network_range: [],
@@ -29,6 +32,7 @@ def test_returns_empty_when_no_hosts(monkeypatch):
 
 
 def test_passes_subnet_to_scan(monkeypatch):
+    """Проверяет, что discover передаёт строку подсети в функцию сканирования без изменений."""
     received = []
     def fake_scan(network_range):
         received.append(network_range)
@@ -39,6 +43,7 @@ def test_passes_subnet_to_scan(monkeypatch):
 
 
 def test_scan_error_raises_discovery_error(monkeypatch):
+    """Проверяет, что исключение из функции сканирования пробрасывается наружу из discover."""
     def broken_scan(_):
         raise OSError("network unreachable")
     monkeypatch.setattr("classctl.core.discovery.get_lan_ip_mac_list", broken_scan)
