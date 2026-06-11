@@ -56,18 +56,27 @@ class RunStateMachine:
 
     @property
     def state(self) -> RunState:
-        """Возвращает текущее состояние прогона в виде объекта RunState."""
+        """Возвращает текущее состояние прогона.
+
+        Returns:
+            Объект RunState с фазой, шагами и статусами всех машин.
+        """
         return self._state
 
     # --- Переходы ---
 
     def start_step(self, step: int) -> None:
-        """Переводит машины в статус RUNNING для шага step.
+        """Переводит машины в статус RUNNING для указанного шага.
 
-        Принимает номер шага step. Переводит только машины в статусе PENDING —
-        машины в статусе CLEAN (успешно завершившие шаг при предыдущей попытке)
-        остаются нетронутыми, чтобы не выполнять их повторно без необходимости.
-        Выбрасывает RuntimeError если какая-либо машина уже находится в статусе RUNNING.
+        Переводит только машины в статусе PENDING — машины в статусе CLEAN
+        (успешно завершившие шаг при предыдущей попытке) остаются нетронутыми,
+        чтобы не выполнять их повторно без необходимости.
+
+        Args:
+            step: номер запускаемого шага.
+
+        Raises:
+            RuntimeError: если какая-либо машина уже находится в статусе RUNNING.
         """
         if any(s == MachineStatus.RUNNING for s in self._state.machines.values()):
             raise RuntimeError("Cannot start a step while machines are already running")
@@ -77,9 +86,12 @@ class RunStateMachine:
         self._state.current_step = step
 
     def machine_completed(self, ip: str, output: str, flagged_lines: list[str]) -> None:
-        """Записывает результат завершения машины ip: сохраняет вывод output и совпавшие строки flagged_lines.
+        """Записывает результат завершения машины.
 
-        Устанавливает статус FLAGGED если есть совпавшие строки, иначе CLEAN.
+        Args:
+            ip: IP-адрес машины.
+            output: полный захваченный stdout+stderr.
+            flagged_lines: строки, совпавшие с паттернами ошибок.
         """
         self._state.output[ip] = output
         self._state.flagged_lines[ip] = flagged_lines
@@ -88,11 +100,19 @@ class RunStateMachine:
         )
 
     def machine_timed_out(self, ip: str) -> None:
-        """Устанавливает статус TIMED_OUT для машины ip."""
+        """Устанавливает статус TIMED_OUT для машины.
+
+        Args:
+            ip: IP-адрес машины.
+        """
         self._state.machines[ip] = MachineStatus.TIMED_OUT
 
     def machine_disconnected(self, ip: str) -> None:
-        """Устанавливает статус DISCONNECTED для машины ip."""
+        """Устанавливает статус DISCONNECTED для машины.
+
+        Args:
+            ip: IP-адрес машины.
+        """
         self._state.machines[ip] = MachineStatus.DISCONNECTED
 
     def evaluate_step(self) -> None:
@@ -121,10 +141,13 @@ class RunStateMachine:
     def operator_retry(self, ips: list[str] | None = None) -> None:
         """Сбрасывает неудачные машины в PENDING для повторного выполнения текущего шага.
 
-        Принимает необязательный список ips — конкретные машины для повтора.
-        Если ips равен None, повторяются все неудачные машины.
         Машины в статусе CLEAN никогда не затрагиваются.
-        Выбрасывает RuntimeError если прогон не находится в состоянии PAUSED.
+
+        Args:
+            ips: список IP-адресов для повтора. Если None — повторяются все неудачные.
+
+        Raises:
+            RuntimeError: если прогон не находится в состоянии PAUSED.
         """
         self._require_paused("retry")
         targets = ips if ips is not None else [
@@ -137,7 +160,8 @@ class RunStateMachine:
     def operator_skip(self) -> None:
         """Помечает все неудачные машины как SKIPPED и переходит к следующему шагу.
 
-        Выбрасывает RuntimeError если прогон не находится в состоянии PAUSED.
+        Raises:
+            RuntimeError: если прогон не находится в состоянии PAUSED.
         """
         self._require_paused("skip")
         for ip, status in self._state.machines.items():
@@ -155,7 +179,11 @@ class RunStateMachine:
             self._state.phase = RunPhase.RUNNING
 
     def operator_abort(self) -> None:
-        """Переводит прогон в состояние ABORTED. Выбрасывает RuntimeError если прогон не в PAUSED."""
+        """Переводит прогон в состояние ABORTED.
+
+        Raises:
+            RuntimeError: если прогон не находится в состоянии PAUSED.
+        """
         self._require_paused("abort")
         self._state.phase = RunPhase.ABORTED
 

@@ -38,17 +38,32 @@ class ConfigManager:
         return self._data["error_patterns"]
 
     def get_classroom(self, name: str) -> dict:
-        """Находит и возвращает аудиторию по имени name. Выбрасывает KeyError если не найдена."""
+        """Находит и возвращает аудиторию по имени.
+
+        Args:
+            name: имя аудитории.
+
+        Returns:
+            Словарь с данными аудитории.
+
+        Raises:
+            KeyError: если аудитория с таким именем не найдена.
+        """
         for room in self._data["classrooms"]:
             if room["name"] == name:
                 return room
         raise KeyError(name)
 
     def add_classroom(self, classroom: dict) -> None:
-        """Добавляет новую аудиторию classroom в конфигурацию и сохраняет её на диск.
+        """Добавляет новую аудиторию в конфигурацию и сохраняет на диск.
 
-        Имена аудиторий являются первичным ключом; выбрасывает ValueError при попытке
-        добавить аудиторию с уже существующим именем.
+        Имена аудиторий являются первичным ключом.
+
+        Args:
+            classroom: словарь с данными аудитории; обязательное поле — name.
+
+        Raises:
+            ValueError: если аудитория с таким именем уже существует.
         """
         name = classroom["name"]
         # Имена — первичный ключ; дублирование молча испортило бы список
@@ -59,9 +74,14 @@ class ConfigManager:
         self._save()
 
     def update_classroom(self, name: str, classroom: dict) -> None:
-        """Заменяет данные аудитории с именем name на classroom и сохраняет на диск.
+        """Заменяет данные аудитории и сохраняет на диск.
 
-        Выбрасывает KeyError если аудитория с таким именем не найдена.
+        Args:
+            name: имя аудитории, которую нужно обновить.
+            classroom: новый словарь данных аудитории.
+
+        Raises:
+            KeyError: если аудитория с таким именем не найдена.
         """
         rooms = self._data["classrooms"]
         for i, room in enumerate(rooms):
@@ -74,19 +94,42 @@ class ConfigManager:
     # --- Реестр машин ---
 
     def get_machines(self, classroom_name: str) -> list[dict]:
-        """Возвращает список машин аудитории classroom_name. Выбрасывает KeyError если аудитория не найдена."""
+        """Возвращает список машин аудитории.
+
+        Args:
+            classroom_name: имя аудитории.
+
+        Returns:
+            Список словарей машин (может быть пустым).
+
+        Raises:
+            KeyError: если аудитория не найдена.
+        """
         return self.get_classroom(classroom_name).setdefault("machines", [])
 
     def add_machine(self, classroom_name: str, machine: dict) -> None:
-        """Добавляет машину machine в аудиторию classroom_name и сохраняет конфигурацию на диск."""
+        """Добавляет машину в аудиторию и сохраняет конфигурацию на диск.
+
+        Args:
+            classroom_name: имя аудитории.
+            machine: словарь машины с полями ip и mac.
+
+        Raises:
+            KeyError: если аудитория не найдена.
+        """
         self.get_machines(classroom_name).append(machine)
         self._touch_updated_at(classroom_name)
         self._save()
 
     def remove_machine(self, classroom_name: str, mac: str) -> None:
-        """Удаляет машину с MAC-адресом mac из аудитории classroom_name и сохраняет изменения.
+        """Удаляет машину из аудитории по MAC-адресу и сохраняет изменения.
 
-        Выбрасывает KeyError если машина с таким MAC не найдена.
+        Args:
+            classroom_name: имя аудитории.
+            mac: MAC-адрес машины для удаления.
+
+        Raises:
+            KeyError: если аудитория не найдена или машина с таким MAC отсутствует.
         """
         machines = self.get_machines(classroom_name)
         for i, m in enumerate(machines):
@@ -98,12 +141,22 @@ class ConfigManager:
         raise KeyError(mac)
 
     def merge_discovered(self, classroom_name: str, discovered: list[dict]) -> int:
-        """Объединяет результаты ARP-сканирования discovered со списком машин аудитории classroom_name.
+        """Объединяет результаты ARP-сканирования со списком машин аудитории.
 
         Ключом дедупликации является MAC-адрес. Если известный MAC найден в сканировании,
         его IP обновляется (DHCP мог переназначить адрес). Новые MAC-адреса добавляются в конец.
         Машины, отсутствующие в сканировании, остаются без изменений — они могут быть просто
-        выключены. Возвращает количество машин, которых ранее не было в списке.
+        выключены.
+
+        Args:
+            classroom_name: имя аудитории.
+            discovered: список словарей {ip, mac} из ARP-сканирования.
+
+        Returns:
+            Количество машин, которых ранее не было в списке.
+
+        Raises:
+            KeyError: если аудитория не найдена.
         """
         machines = self.get_machines(classroom_name)
         existing = {m["mac"]: m for m in machines}
@@ -120,14 +173,22 @@ class ConfigManager:
         return new_count
 
     def save_error_patterns(self, patterns: list[str]) -> None:
-        """Заменяет список паттернов ошибок на patterns и сохраняет конфигурацию на диск."""
+        """Заменяет список паттернов ошибок и сохраняет конфигурацию на диск.
+
+        Args:
+            patterns: новый список паттернов.
+        """
         self._data["error_patterns"] = patterns
         self._save()
 
     def delete_classroom(self, name: str) -> None:
-        """Удаляет аудиторию с именем name и сохраняет изменения на диск.
+        """Удаляет аудиторию и сохраняет изменения на диск.
 
-        Выбрасывает KeyError если аудитория не найдена.
+        Args:
+            name: имя аудитории для удаления.
+
+        Raises:
+            KeyError: если аудитория не найдена.
         """
         rooms = self._data["classrooms"]
         for i, room in enumerate(rooms):
@@ -140,7 +201,7 @@ class ConfigManager:
     # --- Внутренние методы ---
 
     def _touch_updated_at(self, classroom_name: str) -> None:
-        """Обновляет метку времени machines_updated_at аудитории classroom_name до текущего момента."""
+        """Обновляет метку времени machines_updated_at аудитории до текущего момента."""
         room = self.get_classroom(classroom_name)
         room["machines_updated_at"] = datetime.now(timezone.utc).isoformat()
 

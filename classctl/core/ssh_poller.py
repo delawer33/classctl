@@ -18,10 +18,16 @@ class SSHPoller:
     async def wait(
         self, ips: list[str], port: int | dict[str, int] = 22
     ) -> tuple[set[str], set[str]]:
-        """Опрашивает все IP-адреса из ips параллельно и возвращает пару (доступные, недоступные).
+        """Опрашивает все IP-адреса параллельно.
 
-        Параметр port может быть единым числом для всех IP или словарём,
-        отображающим каждый IP на его собственный SSH-порт.
+        Args:
+            ips: список IP-адресов для опроса.
+            port: единый порт для всех IP или словарь {ip: port}
+                  для машин с нестандартными портами.
+
+        Returns:
+            Пара (reachable, timed_out) — множества IP-адресов,
+            которые ответили и которые не ответили в отведённое время.
         """
         def _port(ip: str) -> int:
             return port[ip] if isinstance(port, dict) else port
@@ -34,7 +40,7 @@ class SSHPoller:
         return reachable, timed_out
 
     async def _poll_one(self, ip: str, port: int) -> bool:
-        """Опрашивает один IP-адрес ip на порту port до истечения таймаута. Возвращает True если соединение установлено."""
+        """Опрашивает один IP-адрес на порту port до истечения таймаута. Возвращает True если соединение установлено."""
         deadline = asyncio.get_event_loop().time() + self.timeout
         while asyncio.get_event_loop().time() < deadline:
             try:

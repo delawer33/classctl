@@ -22,11 +22,19 @@ async def _default_run_script(
     ip: str, port: int, username: str, key_path: str,
     script_path: str, on_output: Callable | None, timeout: float,
 ) -> ExecutionResult:
-    """Создаёт ScriptExecutor и запускает скрипт script_path на машине ip.
+    """Создаёт ScriptExecutor и запускает скрипт на машине.
 
-    Принимает параметры подключения (ip, port, username, key_path), путь к скрипту,
-    коллбэк on_output для стриминга вывода и таймаут timeout в секундах.
-    Возвращает ExecutionResult с результатом выполнения.
+    Args:
+        ip: IP-адрес целевой машины.
+        port: SSH-порт.
+        username: имя пользователя SSH.
+        key_path: путь к файлу закрытого ключа.
+        script_path: путь к скрипту на удалённой машине.
+        on_output: коллбэк для стриминга вывода; может быть None.
+        timeout: таймаут выполнения в секундах.
+
+    Returns:
+        ExecutionResult с результатом выполнения.
     """
     executor = ScriptExecutor(
         host=ip, port=port, username=username, key_path=key_path,
@@ -46,7 +54,7 @@ class PipelineRunner:
     Все изменения состояния доступны через runner.state и стримятся как события
     через runner.events (потребляются обработчиком WebSocket).
 
-    Отправитель WoL и SSH-поллер инъецируются для замены в юнит-тестах.
+    WoL-отправитель и SSH-поллер инъецируются для замены в юнит-тестах.
     Установка wol_sender=None полностью отключает фазу WoL.
     """
 
@@ -86,19 +94,28 @@ class PipelineRunner:
 
     @property
     def state(self):
-        """Возвращает текущее состояние прогона из RunStateMachine."""
+        """Возвращает текущее состояние прогона.
+
+        Returns:
+            Объект RunState из RunStateMachine.
+        """
         return self._rsm.state
 
     @property
     def events(self) -> asyncio.Queue:
-        """Очередь событий-словарей, потребляемых обработчиком WebSocket."""
+        """Возвращает очередь событий прогона.
+
+        Returns:
+            asyncio.Queue со словарями событий, потребляемых обработчиком WebSocket.
+        """
         return self._event_queue
 
     def deliver_decision(self, action: str, ips: list[str] | None = None) -> None:
         """Доставляет решение оператора в момент паузы прогона.
 
-        Принимает action — одно из 'retry', 'skip', 'abort' — и необязательный список
-        ips с конкретными машинами для повтора (None означает все неудачные).
+        Args:
+            action: одно из 'retry', 'skip', 'abort'.
+            ips: список IP-адресов для повтора; None означает все неудачные машины.
         """
         self._decision_queue.put_nowait({"action": action, "ips": ips})
 
@@ -107,6 +124,9 @@ class PipelineRunner:
 
         Сначала валидирует конфигурацию, затем проходит фазу WoL и последовательно
         выполняет шаги. При паузе ждёт решения оператора из очереди решений.
+
+        Raises:
+            ConfigurationError: если конфигурация аудитории недействительна.
         """
         self._validate()
         await self._wol_phase()
@@ -169,9 +189,9 @@ class PipelineRunner:
     async def _wol_phase(self) -> None:
         """Отправляет WoL-пакеты всем машинам и ждёт доступности SSH-порта.
 
-        Если wol_sender равен None — фаза пропускается. После успешного опроса
-        машины, не ответившие в отведённое время, помечаются как SKIPPED.
-        Завершается паузой post_wol_delay для полного запуска ОС и служб.
+        Если wol_sender равен None — фаза пропускается. После опроса машины,
+        не ответившие в отведённое время, помечаются как SKIPPED. Завершается
+        паузой post_wol_delay для полного запуска ОС и служб.
         """
         if not self._wol_sender:
             return
@@ -214,11 +234,10 @@ class PipelineRunner:
             await asyncio.sleep(self._post_wol_delay)
 
     async def _run_one(self, ip: str, step: int) -> None:
-        """Выполняет один шаг step на одной машине ip и передаёт результат в RSM.
+        """Выполняет один шаг на одной машине и передаёт результат в RSM.
 
         Определяет путь к скрипту из конфигурации аудитории, запускает его через
-        run_script и в зависимости от результата вызывает соответствующий метод
-        перехода в RunStateMachine.
+        run_script и вызывает соответствующий метод перехода в RunStateMachine.
         """
         script_dir = self._classroom["script_directory"]
         filename = self._classroom["step_mapping"][str(step)]

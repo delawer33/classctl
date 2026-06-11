@@ -37,11 +37,11 @@ class ShutdownRequest(BaseModel):
 
 
 async def _run_pipeline(runner: PipelineRunner, on_finish=None) -> None:
-    """Запускает runner.run() и перехватывает исключения конфигурации как события.
+    """Запускает runner.run() и перехватывает исключения как события.
 
-    Принимает экземпляр runner и необязательный коллбэк on_finish, вызываемый
-    по завершению прогона (в том числе при ошибке). Ошибки публикуются в очередь
-    событий как события типа 'run_error'.
+    Args:
+        runner: экземпляр PipelineRunner для запуска.
+        on_finish: необязательный коллбэк, вызываемый по завершению прогона.
     """
     try:
         await runner.run()
@@ -53,10 +53,14 @@ async def _run_pipeline(runner: PipelineRunner, on_finish=None) -> None:
 
 
 def _serialize_state(state) -> dict:
-    """Преобразует объект RunState в словарь, пригодный для сериализации в JSON.
+    """Преобразует объект RunState в словарь для сериализации в JSON.
 
-    Принимает state типа RunState. Возвращает словарь с фазой, шагами,
-    статусами машин, совпавшими строками и полным выводом.
+    Args:
+        state: объект RunState.
+
+    Returns:
+        Словарь с полями phase, current_step, start_step, end_step,
+        machines, flagged_lines и output.
     """
     return {
         "phase": state.phase.name,
@@ -77,10 +81,15 @@ _DEFAULT_CONFIG_PATH = Path.home() / ".config" / "classctl" / "classrooms.json"
 
 
 def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI:
-    """Фабрика приложения FastAPI. Принимает необязательный ConfigManager config и функцию выключения shutdown_fn.
+    """Фабрика приложения FastAPI.
 
-    Позволяет тестам инъецировать изолированный ConfigManager с временным путём
-    к файлу конфигурации вместо ~/.config/classctl/classrooms.json.
+    Args:
+        config: экземпляр ConfigManager; если None — создаётся с путём по умолчанию.
+                Позволяет тестам инъецировать изолированный ConfigManager.
+        shutdown_fn: функция выключения машины; если None — используется ssh_shutdown.
+
+    Returns:
+        Сконфигурированное приложение FastAPI со всеми маршрутами.
     """
     if config is None:
         config = ConfigManager(_DEFAULT_CONFIG_PATH)
@@ -108,7 +117,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.post("/classrooms", status_code=201)
     def create_classroom(classroom: dict):
-        """Создаёт новую аудиторию classroom. Возвращает 409 если аудитория с таким именем уже существует."""
+        """Создаёт новую аудиторию. Возвращает 409 если аудитория с таким именем уже существует."""
         try:
             config.add_classroom(classroom)
         except ValueError:
@@ -117,7 +126,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.get("/classrooms/{name}")
     def get_classroom(name: str):
-        """Возвращает данные аудитории по имени name. Возвращает 404 если не найдена."""
+        """Возвращает данные аудитории по имени. Возвращает 404 если не найдена."""
         try:
             return config.get_classroom(name)
         except KeyError:
@@ -125,7 +134,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.put("/classrooms/{name}")
     def update_classroom(name: str, classroom: dict):
-        """Заменяет данные аудитории name на classroom. Возвращает 404 если аудитория не найдена."""
+        """Заменяет данные аудитории. Возвращает 404 если аудитория не найдена."""
         try:
             config.update_classroom(name, classroom)
         except KeyError:
@@ -134,7 +143,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.delete("/classrooms/{name}", status_code=204)
     def delete_classroom(name: str):
-        """Удаляет аудиторию name. Возвращает 404 если не найдена."""
+        """Удаляет аудиторию. Возвращает 404 если не найдена."""
         try:
             config.delete_classroom(name)
         except KeyError:
@@ -145,7 +154,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.get("/classrooms/{name}/machines")
     def list_machines(name: str):
-        """Возвращает список машин аудитории name. Возвращает 404 если аудитория не найдена."""
+        """Возвращает список машин аудитории. Возвращает 404 если аудитория не найдена."""
         try:
             return config.get_machines(name)
         except KeyError:
@@ -153,7 +162,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.post("/classrooms/{name}/machines", status_code=201)
     def add_machine(name: str, machine: dict):
-        """Добавляет машину machine в аудиторию name. Возвращает 404 если аудитория не найдена."""
+        """Добавляет машину в аудиторию. Возвращает 404 если аудитория не найдена."""
         try:
             config.add_machine(name, machine)
         except KeyError:
@@ -162,7 +171,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.delete("/classrooms/{name}/machines/{mac}", status_code=204)
     def remove_machine(name: str, mac: str):
-        """Удаляет машину с MAC-адресом mac из аудитории name. Возвращает 404 если не найдена."""
+        """Удаляет машину из аудитории по MAC-адресу. Возвращает 404 если не найдена."""
         try:
             config.remove_machine(name, mac)
         except KeyError:
@@ -171,10 +180,10 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.post("/classrooms/{name}/discover")
     def discover_machines(name: str):
-        """Запускает ARP-сканирование подсети аудитории name и объединяет результаты со списком машин.
+        """Запускает ARP-сканирование подсети аудитории и объединяет результаты со списком машин.
 
-        Возвращает обновлённый список машин, количество найденных хостов, количество новых
-        и флаг no_hosts_found. Возвращает 404 если аудитория не найдена, 502 при ошибке сканирования.
+        Returns:
+            Словарь с полями machines, found_count, new_count и no_hosts_found.
         """
         try:
             room = config.get_classroom(name)
@@ -196,12 +205,14 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.post("/classrooms/{name}/run", status_code=202)
     async def start_run(name: str, request: RunRequest):
-        """Запускает новый прогон для аудитории name с параметрами из request.
+        """Запускает новый прогон для аудитории.
 
-        Принимает start_step, end_step, необязательный список machine_ips и флаг wake_on_lan.
-        Возвращает run_id и предупреждение stale_machines_warning если список машин устарел.
-        Возвращает 404 если аудитория не найдена, 400 при ошибке конфигурации,
-        409 если другой прогон уже активен.
+        Args:
+            name: имя аудитории.
+            request: параметры прогона — start_step, end_step, machine_ips, wake_on_lan.
+
+        Returns:
+            Словарь с полями run_id и stale_machines_warning.
         """
         try:
             room = config.get_classroom(name)
@@ -261,7 +272,7 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.get("/runs/{run_id}/state")
     def get_run_state(run_id: str):
-        """Возвращает сериализованное состояние прогона run_id. Возвращает 404 если прогон не найден."""
+        """Возвращает сериализованное состояние прогона. Возвращает 404 если прогон не найден."""
         entry = app.state.runs.get(run_id)
         if not entry:
             raise HTTPException(status_code=404, detail="Run not found")
@@ -269,9 +280,14 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.post("/runs/{run_id}/decide")
     def decide(run_id: str, request: DecisionRequest):
-        """Доставляет решение оператора (retry/skip/abort) в очередь прогона run_id.
+        """Доставляет решение оператора (retry/skip/abort) в очередь прогона.
 
-        Возвращает 404 если прогон не найден.
+        Args:
+            run_id: идентификатор прогона.
+            request: решение с полями action и опциональным ips.
+
+        Returns:
+            {'ok': True}
         """
         entry = app.state.runs.get(run_id)
         if not entry:
@@ -281,11 +297,15 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.websocket("/runs/{run_id}/ws")
     async def run_ws(run_id: str, ws: WebSocket):
-        """WebSocket-обработчик для стриминга событий прогона run_id клиенту.
+        """WebSocket-обработчик для стриминга событий прогона клиенту.
 
         При подключении отправляет снимок текущего состояния, затем стримит события
         из очереди runner.events. Посылает пинги при отсутствии событий.
         Закрывает соединение с кодом 1008 если прогон не найден.
+
+        Args:
+            run_id: идентификатор прогона.
+            ws: объект WebSocket соединения.
         """
         await ws.accept()
         entry = app.state.runs.get(run_id)
@@ -312,11 +332,16 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.post("/classrooms/{name}/shutdown")
     async def shutdown_machines(name: str, request: ShutdownRequest):
-        """Выключает машины аудитории name через SSH.
+        """Выключает машины аудитории через SSH.
 
-        Принимает необязательный список machine_ips в request (None = все машины).
-        Машины, участвующие в активном прогоне, исключаются и возвращаются в поле 'skipped'.
-        Возвращает 404 если аудитория не найдена.
+        Машины, участвующие в активном прогоне, исключаются из выключения.
+
+        Args:
+            name: имя аудитории.
+            request: список machine_ips для выключения; None означает все машины.
+
+        Returns:
+            Словарь с полями results (список результатов по машинам) и skipped.
         """
         try:
             room = config.get_classroom(name)
@@ -361,7 +386,14 @@ def create_app(config: ConfigManager | None = None, shutdown_fn=None) -> FastAPI
 
     @app.put("/settings/error-patterns")
     def update_error_patterns(patterns: list[str]):
-        """Заменяет список паттернов ошибок на patterns и сохраняет конфигурацию. Возвращает обновлённый список."""
+        """Заменяет список паттернов ошибок и сохраняет конфигурацию.
+
+        Args:
+            patterns: новый список паттернов.
+
+        Returns:
+            Обновлённый список паттернов.
+        """
         config.save_error_patterns(patterns)
         return patterns
 

@@ -8,7 +8,11 @@ import netifaces
 
 
 def get_gateway() -> str:
-    """Возвращает IP-адрес шлюза по умолчанию для интерфейса IPv4."""
+    """Возвращает IP-адрес шлюза по умолчанию для интерфейса IPv4.
+
+    Returns:
+        Строка с IP-адресом шлюза.
+    """
     gws = netifaces.gateways()
     return gws["default"][netifaces.AF_INET][0]
 
@@ -35,11 +39,7 @@ def _scapy_iface(network_range: str):
 
 
 def _scapy_discovery(network_range: str) -> list[tuple[str, str]]:
-    """Выполняет ARP-сканирование подсети network_range через scapy.
-
-    Отправляет широковещательные ARP-запросы и возвращает список пар (ip, mac)
-    для всех ответивших хостов, исключая шлюз по умолчанию.
-    """
+    """Выполняет ARP-сканирование подсети через scapy, исключая шлюз из результатов."""
     import scapy.all as sc
     iface = _scapy_iface(network_range)
     scanned = sc.srp(
@@ -92,11 +92,7 @@ def _read_arp_table(network_range: str) -> list[tuple[str, str]]:
 
 
 def _windows_discovery(network_range: str) -> list[tuple[str, str]]:
-    """Обнаруживает хосты в подсети network_range на Windows.
-
-    Параллельно пингует все хосты подсети для заполнения ARP-кеша,
-    затем читает таблицу и возвращает пары (ip, mac), исключая шлюз по умолчанию.
-    """
+    """Обнаруживает хосты в подсети на Windows через ping-обход и чтение ARP-таблицы, исключая шлюз."""
     net = ipaddress.ip_network(network_range, strict=False)
     hosts = list(net.hosts())
     with ThreadPoolExecutor(max_workers=64) as pool:
@@ -112,9 +108,15 @@ def _windows_discovery(network_range: str) -> list[tuple[str, str]]:
 # ── Публичный API ─────────────────────────────────────────────────────────────
 
 def get_lan_ip_mac_list(network_range: str) -> list[tuple[str, str]]:
-    """Обнаруживает хосты в подсети network_range и возвращает список пар (ip, mac).
+    """Обнаруживает хосты в подсети и возвращает список пар (ip, mac).
 
     На Windows использует ping-обход + ARP-таблицу; на остальных платформах — scapy.
+
+    Args:
+        network_range: подсеть в формате CIDR, например «192.168.1.0/24».
+
+    Returns:
+        Список пар (ip, mac) для всех обнаруженных хостов, исключая шлюз.
     """
     if platform.system() == "Windows":
         return _windows_discovery(network_range)

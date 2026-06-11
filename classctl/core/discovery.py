@@ -1,8 +1,14 @@
 def get_lan_ip_mac_list(network_range: str) -> list[tuple[str, str]]:
-    """Делегирует ARP-сканирование подсети network_range в lan_ip.py.
+    """Делегирует ARP-сканирование в lan_ip.py.
 
     Ленивый импорт исключает scapy из графа зависимостей в тестовой среде,
-    где эта функция подменяется monkeypatch. Возвращает список пар (ip, mac).
+    где эта функция подменяется через monkeypatch.
+
+    Args:
+        network_range: подсеть в формате CIDR, например «192.168.1.0/24».
+
+    Returns:
+        Список пар (ip, mac) для всех обнаруженных хостов.
     """
     # Ленивый импорт оставляет scapy вне графа зависимостей в тестах,
     # где эта функция подменяется через monkeypatch.
@@ -18,6 +24,13 @@ class DiscoveryEngine:
     """
 
     def discover(self, subnet: str) -> list[dict]:
-        """Сканирует подсеть subnet и возвращает список словарей вида {'ip': ..., 'mac': ...}."""
+        """Сканирует подсеть и возвращает список машин.
+
+        Args:
+            subnet: подсеть в формате CIDR.
+
+        Returns:
+            Список словарей вида {'ip': ..., 'mac': ...}.
+        """
         pairs = get_lan_ip_mac_list(subnet)
         return [{"ip": ip, "mac": mac} for ip, mac in pairs]
